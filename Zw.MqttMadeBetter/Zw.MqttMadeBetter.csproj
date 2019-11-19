@@ -31,6 +31,27 @@
       <Compile Update="ControlPackets\Subscribe.cs">
         <DependentUpon>MqttControlPacket.cs</DependentUpon>
       </Compile>
+      <Compile Update="ControlPackets\Connect.cs">
+        <DependentUpon>MqttControlPacket.cs</DependentUpon>
+      </Compile>
+      <Compile Update="ControlPackets\Puback.cs">
+        <DependentUpon>MqttControlPacket.cs</DependentUpon>
+      </Compile>
+      <Compile Update="ControlPackets\Pubcomp.cs">
+        <DependentUpon>MqttControlPacket.cs</DependentUpon>
+      </Compile>
+      <Compile Update="ControlPackets\Pubrec.cs">
+        <DependentUpon>MqttControlPacket.cs</DependentUpon>
+      </Compile>
+      <Compile Update="ControlPackets\Pubrel.cs">
+        <DependentUpon>MqttControlPacket.cs</DependentUpon>
+      </Compile>
+      <Compile Update="ControlPackets\Unsubscribe.cs">
+        <DependentUpon>MqttControlPacket.cs</DependentUpon>
+      </Compile>
+      <Compile Update="ControlPackets\Disconnect.cs">
+        <DependentUpon>MqttControlPacket.cs</DependentUpon>
+      </Compile>
     </ItemGroup>
 
 </Project>

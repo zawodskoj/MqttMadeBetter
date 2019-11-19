@@ -1,6 +1,6 @@
 namespace Zw.MqttMadeBetter.ControlPackets
 {
-    public sealed class MqttUnsubackControlPacket : MqttControlPacket
+    public class MqttUnsubackControlPacket : MqttControlPacket<MqttUnsubackControlPacketFactory>
     {
         public ushort PacketIdentifier { get; }
 
@@ -11,5 +11,10 @@ namespace Zw.MqttMadeBetter.ControlPackets
 
         internal override MqttControlPacketType Type => MqttControlPacketType.UNSUBACK;
         internal override byte TypeFlags => 0;
+    }
+
+    public struct MqttUnsubackControlPacketFactory : IPacketWithOnlyIdFactory
+    {
+        public MqttControlPacket Create(ushort packetIdentifier) => new MqttUnsubackControlPacket(packetIdentifier);
     }
 }

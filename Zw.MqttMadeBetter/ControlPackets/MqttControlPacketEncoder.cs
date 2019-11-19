@@ -20,7 +20,9 @@ namespace Zw.MqttMadeBetter.ControlPackets
             {
                 MqttConnectControlPacket connect => EncodeConnect(connect), 
                 MqttSubscribeControlPacket subscribe => EncodeSubscribe(subscribe),
-                MqttPingreqControlPacket pingreq => Array.Empty<byte>(),
+                MqttUnsubscribeControlPacket unsubscribe => EncodeUnsubscribe(unsubscribe),
+                IEmptyPacket _ => Array.Empty<byte>(),
+                IPacketWithOnlyId onlyId => new[] { (byte) (onlyId.PacketIdentifier >> 8), (byte) onlyId.PacketIdentifier },
                 _ => throw new NotSupportedException("Not implemented yet")
             };
             
@@ -114,6 +116,25 @@ namespace Zw.MqttMadeBetter.ControlPackets
                 newOffset = buffer.WriteUtf8StringAtOffset(topicFilter.Topic, newOffset);
                 buffer[newOffset++] = (byte) topicFilter.Qos;
             }
+
+            return buffer;
+        }
+
+        private static byte[] EncodeUnsubscribe(MqttUnsubscribeControlPacket subscribe)
+        {
+            var measured = 2;
+            
+            foreach (var topic in subscribe.Topics)
+                measured += MeasureOrZero(topic);
+
+            var buffer = new byte[measured];
+            
+            buffer[0] = (byte) (subscribe.PacketIdentifier / 256);
+            buffer[1] = (byte) (subscribe.PacketIdentifier % 256);
+
+            var newOffset = 2;
+            foreach (var topic in subscribe.Topics)
+                newOffset = buffer.WriteUtf8StringAtOffset(topic, newOffset);
 
             return buffer;
         }

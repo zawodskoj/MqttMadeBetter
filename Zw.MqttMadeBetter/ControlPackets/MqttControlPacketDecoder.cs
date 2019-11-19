@@ -15,17 +15,17 @@ namespace Zw.MqttMadeBetter.ControlPackets
             Unsupported, // CONNECT is not yet implemented
             DecodeConnack,
             DecodePublish,
-            Unsupported, // PUBACK is not yet implemented 
-            Unsupported, // PUBREC is not yet implemented 
-            Unsupported, // PUBREL is not yet implemented 
-            Unsupported, // PUBCOMP is not yet implemented
+            DecodeOnlyId<MqttPubackControlPacketFactory>,
+            DecodeOnlyId<MqttPubrecControlPacketFactory>,
+            DecodeOnlyId<MqttPubrelControlPacketFactory>,
+            DecodeOnlyId<MqttPubcompControlPacketFactory>,
             Unsupported, // SUBSCRIBE is not yet implemented 
             DecodeSuback,
             Unsupported, // UNSUBSCRIBE is not yet implemented
-            DecodeUnsuback,
-            DecodePingreq,
-            DecodePingresp,
-            Unsupported, // DISCONNECT is not yet implemented,
+            DecodeOnlyId<MqttUnsubackControlPacketFactory>,
+            DecodeEmpty<MqttPingreqControlPacket>,
+            DecodeEmpty<MqttPingrespControlPacket>,
+            DecodeEmpty<MqttDisconnectControlPacket>,
             Reserved // Reserved type
         };
         
@@ -100,21 +100,22 @@ namespace Zw.MqttMadeBetter.ControlPackets
             return new MqttSubackControlPacket(packetIdentifier, results);
         }
 
-        private static MqttControlPacket DecodeUnsuback(byte[] payload, byte typeFlags)
+        private static MqttControlPacket DecodeOnlyId<TFac>(byte[] payload, byte typeFlags) where TFac : struct, IPacketWithOnlyIdFactory
         {
+            if (payload.Length != 2)
+                throw new InvalidDataException("Expected two bytes payload, got payload with length " + payload.Length);
+
             var packetIdentifier = (ushort) (payload[0] * 256 + payload[1]);
 
-            return new MqttUnsubackControlPacket(packetIdentifier);
+            return default(TFac).Create(packetIdentifier);
         }
-
-        private static MqttControlPacket DecodePingreq(byte[] payload, byte typeFlags)
+        
+        private static MqttControlPacket DecodeEmpty<T>(byte[] payload, byte typeFlags) where T : MqttControlPacket, new()
         {
-            return new MqttPingreqControlPacket();
-        }
-
-        private static MqttControlPacket DecodePingresp(byte[] payload, byte typeFlags)
-        {
-            return new MqttPingrespControlPacket();
+            if (payload.Length != 0)
+                throw new InvalidDataException("Expected no payload, got payload with length " + payload.Length);
+            
+            return new T();
         }
     }
 }
