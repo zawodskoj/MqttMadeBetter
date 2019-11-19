@@ -21,6 +21,7 @@ namespace Zw.MqttMadeBetter.ControlPackets
                 MqttConnectControlPacket connect => EncodeConnect(connect), 
                 MqttSubscribeControlPacket subscribe => EncodeSubscribe(subscribe),
                 MqttUnsubscribeControlPacket unsubscribe => EncodeUnsubscribe(unsubscribe),
+                MqttPublishControlPacket publish => EncodePublish(publish),
                 IEmptyPacket _ => Array.Empty<byte>(),
                 IPacketWithOnlyId onlyId => new[] { (byte) (onlyId.PacketIdentifier >> 8), (byte) onlyId.PacketIdentifier },
                 _ => throw new NotSupportedException("Not implemented yet")
@@ -117,6 +118,25 @@ namespace Zw.MqttMadeBetter.ControlPackets
                 buffer[newOffset++] = (byte) topicFilter.Qos;
             }
 
+            return buffer;
+        }
+
+        private static byte[] EncodePublish(MqttPublishControlPacket publish)
+        {
+            var measured = publish.Qos != MqttMessageQos.QOS_0 ? 2 : 0;
+            measured += MeasureOrZero(publish.TopicName) + publish.Payload.Length;
+
+            var buffer = new byte[measured];
+
+            var newOffset = buffer.WriteUtf8StringAtOffset(publish.TopicName, 0);
+            if (publish.Qos != MqttMessageQos.QOS_0)
+            {
+                buffer[newOffset++] = (byte) (publish.PacketIdentifier / 256);
+                buffer[newOffset++] = (byte) (publish.PacketIdentifier % 256);
+            }
+
+            publish.Payload.CopyTo(new Memory<byte>(buffer, newOffset, publish.Payload.Length));
+            
             return buffer;
         }
 

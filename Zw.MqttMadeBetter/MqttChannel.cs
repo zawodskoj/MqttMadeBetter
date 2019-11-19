@@ -74,6 +74,7 @@ namespace Zw.MqttMadeBetter
                 try
                 {
                     await MqttControlPacketEncoder.Encode(_stream, packet, _sendBuffer, cancellationToken);
+                    Console.WriteLine("Encoded message: " + packet);
                 }
                 catch (Exception e)
                 {

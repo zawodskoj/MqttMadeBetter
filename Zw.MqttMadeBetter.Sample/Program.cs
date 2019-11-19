@@ -13,30 +13,30 @@ namespace Zw.MqttMadeBetter.Sample
             var port = int.Parse(Environment.GetEnvironmentVariable("MQ_PORT") ?? throw new Exception("Invalid envs"));
             var user = Environment.GetEnvironmentVariable("MQ_USER");
             var pass = Environment.GetEnvironmentVariable("MQ_PASS");
-            
-            var test = await MqttChannel.Open(host, port, x => { }, CancellationToken.None);
-            LoopRecv(test);
-            await test.Send(new MqttConnectControlPacket(
-                    Guid.NewGuid().ToString("N"),
-                    user,
-                    pass,
-                    null,
-                    true,
-                    5),
-                CancellationToken.None);
 
-            await Task.Delay(200);
-
-            await test.Send(new MqttSubscribeControlPacket(
-                    1,
-                    new[] {new TopicFilter("mqtt/test", MqttMessageQos.QOS_1),}),
-                CancellationToken.None);
-
-            while (true)
+            var client = await MqttClient.Create(new MqttConnectionOptions
             {
-                await test.Send(new MqttPingreqControlPacket(), CancellationToken.None);
-                await Task.Delay(2500);
-            }
+                Hostname = host,
+                Port = port,
+                Username = user,
+                Password = pass,
+                AutoAcknowledge = true,
+                CleanSession = true,
+                ClientId = Guid.NewGuid().ToString("N"),
+                KeepAliveSeconds = 5
+            }, CancellationToken.None);
+
+            await client.Send("mqtt/test/qos0/send", MqttMessageQos.QOS_0, ReadOnlyMemory<byte>.Empty, CancellationToken.None);
+            await client.Send("mqtt/test/qos1/send", MqttMessageQos.QOS_1, ReadOnlyMemory<byte>.Empty, CancellationToken.None);
+            await client.Send("mqtt/test/qos2/send", MqttMessageQos.QOS_2, ReadOnlyMemory<byte>.Empty, CancellationToken.None);
+//
+            client.Messages.Subscribe(x => Console.WriteLine("Received " + x));
+            await client.Subscribe("mqtt/test/qos0", MqttMessageQos.QOS_0, CancellationToken.None);
+            await client.Subscribe("mqtt/test/qos1", MqttMessageQos.QOS_1, CancellationToken.None);
+            await client.Subscribe("mqtt/test/qos2", MqttMessageQos.QOS_2, CancellationToken.None);
+
+            Console.WriteLine("Running");
+            await Task.Run(() => Console.ReadLine());
         }
 
         // hello antipatterns
