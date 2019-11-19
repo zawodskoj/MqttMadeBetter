@@ -1,5 +1,4 @@
 using System;
-using System.Buffers;
 using System.IO;
 using System.Text;
 using System.Threading;
@@ -7,20 +6,6 @@ using System.Threading.Tasks;
 
 namespace Zw.MqttMadeBetter.ControlPackets
 {
-    internal struct FixedHeaderWithRemainingLength
-    {
-        public FixedHeaderWithRemainingLength(MqttControlPacketType type, byte typeFlags, long remainingLength)
-        {
-            Type = type;
-            TypeFlags = typeFlags;
-            RemainingLength = remainingLength;
-        }
-
-        public MqttControlPacketType Type { get; }
-        public byte TypeFlags { get; }
-        public long RemainingLength { get; }
-    }
-    
     internal static class MqttStreamHelpers
     {
         public static async Task<byte> ReadSingleByteAsync(this Stream stream, byte[] reusableBuffer, CancellationToken cancellationToken)
