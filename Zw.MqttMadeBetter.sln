@@ -1,0 +1,22 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Zw.MqttMadeBetter", "Zw.MqttMadeBetter\Zw.MqttMadeBetter.csproj", "{9ECCA602-8226-4C6A-A2E1-B0C0C86ED591}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Zw.MqttMadeBetter.Sample", "Zw.MqttMadeBetter.Sample\Zw.MqttMadeBetter.Sample.csproj", "{C201FEC8-D4F5-4A2D-ADE7-C032FBE4A625}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{9ECCA602-8226-4C6A-A2E1-B0C0C86ED591}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9ECCA602-8226-4C6A-A2E1-B0C0C86ED591}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9ECCA602-8226-4C6A-A2E1-B0C0C86ED591}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9ECCA602-8226-4C6A-A2E1-B0C0C86ED591}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C201FEC8-D4F5-4A2D-ADE7-C032FBE4A625}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C201FEC8-D4F5-4A2D-ADE7-C032FBE4A625}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C201FEC8-D4F5-4A2D-ADE7-C032FBE4A625}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C201FEC8-D4F5-4A2D-ADE7-C032FBE4A625}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
