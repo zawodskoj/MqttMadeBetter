@@ -67,15 +67,37 @@ namespace Zw.MqttMadeBetter.Sample
             client.StateChanges.Subscribe(x => Console.WriteLine("State changed to {0}. Excep {1}: {2}", x.State,
                 x.Exception?.GetType().Name, x.Exception?.Message));
             client.Messages.Subscribe(x => Console.WriteLine("Received: " + Encoding.UTF8.GetString(x.Payload.Span)));
+            
+            client.Subscribe("mqtt/test/qos0", MqttMessageQos.QOS_0);
+            client.Subscribe("mqtt/test/qos1", MqttMessageQos.QOS_1);
+            client.Subscribe("mqtt/test/qos2", MqttMessageQos.QOS_2);
 
             Console.WriteLine("Ready");
-            
+
+            bool toggle = false;
             while (true)
             {
-                Console.ReadLine();
-                client.Start();
-                Console.ReadLine();
-                client.Stop();
+                var x = Console.ReadLine();
+                if (string.IsNullOrWhiteSpace(x))
+                {
+                    if (!toggle)
+                        client.Start();
+                    else
+                        client.Stop();
+
+                    toggle = !toggle;
+                }
+                else
+                {
+                    if (x.StartsWith("!"))
+                    {
+                        client.Unsubscribe(x.Substring(1));
+                    }
+                    else
+                    {
+                        client.Subscribe(x, MqttMessageQos.QOS_0);
+                    }
+                }
             }
         }
     }
