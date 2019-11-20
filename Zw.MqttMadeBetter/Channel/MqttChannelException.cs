@@ -1,6 +1,6 @@
 using System;
 
-namespace Zw.MqttMadeBetter
+namespace Zw.MqttMadeBetter.Channel
 {
     public class MqttChannelException : Exception
     {

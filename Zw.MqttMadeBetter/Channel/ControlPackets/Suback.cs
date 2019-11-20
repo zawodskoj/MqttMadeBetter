@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace Zw.MqttMadeBetter.ControlPackets
+namespace Zw.MqttMadeBetter.Channel.ControlPackets
 {
     public enum SubackResultCode
     {

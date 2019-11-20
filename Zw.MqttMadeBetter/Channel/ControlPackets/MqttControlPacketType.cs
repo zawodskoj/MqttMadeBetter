@@ -1,4 +1,4 @@
-namespace Zw.MqttMadeBetter
+namespace Zw.MqttMadeBetter.Channel.ControlPackets
 {
     public enum MqttControlPacketType
     {

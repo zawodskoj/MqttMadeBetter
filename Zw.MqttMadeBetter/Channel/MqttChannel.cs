@@ -1,12 +1,11 @@
 ﻿using System;
-using System.Diagnostics;
 using System.IO;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
-using Zw.MqttMadeBetter.ControlPackets;
+using Zw.MqttMadeBetter.Channel.ControlPackets;
 
-namespace Zw.MqttMadeBetter
+namespace Zw.MqttMadeBetter.Channel
 {
     public class MqttChannel : IDisposable
     {
@@ -32,12 +31,8 @@ namespace Zw.MqttMadeBetter
                 LingerState = new LingerOption(false, 0),
                 NoDelay = true
             };
+            configureTcp?.Invoke(tcp);
             
-            if (configureTcp == null)
-                throw new ArgumentNullException(nameof(configureTcp));
-
-            configureTcp(tcp);
-
             cancellationToken.ThrowIfCancellationRequested();
 
             await using (cancellationToken.Register(tcp.Dispose))

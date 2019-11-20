@@ -1,7 +1,7 @@
 using System;
 using System.Text;
 
-namespace Zw.MqttMadeBetter.ControlPackets
+namespace Zw.MqttMadeBetter.Channel.ControlPackets
 {
     public enum MqttMessageQos
     {

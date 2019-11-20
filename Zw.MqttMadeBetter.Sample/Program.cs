@@ -2,7 +2,8 @@
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Zw.MqttMadeBetter.ControlPackets;
+using Zw.MqttMadeBetter.Channel.ControlPackets;
+using Zw.MqttMadeBetter.Client;
 
 namespace Zw.MqttMadeBetter.Sample
 {
@@ -15,18 +16,18 @@ namespace Zw.MqttMadeBetter.Sample
             var user = Environment.GetEnvironmentVariable("MQ_USER");
             var pass = Environment.GetEnvironmentVariable("MQ_PASS");
 
-            var client = await MqttClient.Create(new MqttConnectionOptions
+            var options = new MqttClientOptions
             {
-                Hostname = host,
-                Port = port,
-                Username = user,
-                Password = pass,
-                AutoAcknowledge = true,
-                CleanSession = true,
-                ClientId = Guid.NewGuid().ToString("N"),
-                KeepAliveSeconds = 5
-            }, CancellationToken.None);
+                Endpoint = new MqttEndpoint(host, port),
+                ConnectionOptions =
+                {
+                    ClientId = Guid.NewGuid().ToString("N"),
+                    Credentials = new MqttCredentials(user, pass)
+                }
+            }.Freeze();
 
+            var client = await MqttClient.Create(options, CancellationToken.None);
+            
             await client.Send("mqtt/test/qos0/send", MqttMessageQos.QOS_0, ReadOnlyMemory<byte>.Empty, CancellationToken.None);
             await client.Send("mqtt/test/qos1/send", MqttMessageQos.QOS_1, ReadOnlyMemory<byte>.Empty, CancellationToken.None);
             await client.Send("mqtt/test/qos2/send", MqttMessageQos.QOS_2, ReadOnlyMemory<byte>.Empty, CancellationToken.None);

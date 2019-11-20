@@ -1,27 +1,7 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 
-namespace Zw.MqttMadeBetter.ControlPackets
+namespace Zw.MqttMadeBetter.Channel.ControlPackets
 {
-    public class MqttWillMessage
-    {
-        public MqttMessageQos Qos { get; }
-        public bool Retain { get; }
-        public string Topic { get; }
-        public ReadOnlyMemory<byte> Payload { get; }
-
-        public MqttWillMessage(MqttMessageQos qos, bool retain, string topic, ReadOnlyMemory<byte> payload)
-        {
-            Qos = qos;
-            Retain = retain;
-            Topic = topic ?? throw new ArgumentNullException(nameof(topic));
-            Payload = payload;
-            
-            if (payload.Length > 65535)
-                throw new ArgumentException("Payload should be smaller than 65536 bytes", nameof(payload));
-        }
-    }
-    
     public class MqttConnectControlPacket : MqttControlPacket
     {
         public MqttConnectControlPacket(string clientId, string username, string password, MqttWillMessage willMessage, bool cleanSession, ushort keepAliveSeconds)

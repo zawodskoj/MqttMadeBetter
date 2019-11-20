@@ -4,7 +4,7 @@ using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Zw.MqttMadeBetter
+namespace Zw.MqttMadeBetter.Channel
 {
     internal class DestroyableStream : Stream
     {

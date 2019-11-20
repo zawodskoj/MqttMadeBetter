@@ -1,4 +1,4 @@
-namespace Zw.MqttMadeBetter.ControlPackets
+namespace Zw.MqttMadeBetter.Channel.ControlPackets
 {
     public class MqttDisconnectControlPacket : MqttControlPacket, IEmptyPacket
     {
