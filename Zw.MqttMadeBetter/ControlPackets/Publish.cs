@@ -19,13 +19,13 @@ namespace Zw.MqttMadeBetter.ControlPackets
         QOS_2
     }
     
-    public sealed class MqttPublishControlPacket : MqttControlPacket
+    public sealed class MqttPublishControlPacket : MqttControlPacketWithId
     {
         public bool IsDuplicate { get; }
         public MqttMessageQos Qos { get; }
         public bool Retain { get; }
         public string TopicName { get; }
-        public ushort PacketIdentifier { get; }
+        public override ushort PacketIdentifier { get; }
         public ReadOnlyMemory<byte> Payload { get; }
 
         public MqttPublishControlPacket(bool isDuplicate, MqttMessageQos qos, bool retain, string topicName, ushort packetIdentifier, ReadOnlyMemory<byte> payload)

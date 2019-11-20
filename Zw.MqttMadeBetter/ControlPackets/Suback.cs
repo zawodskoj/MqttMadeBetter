@@ -10,9 +10,9 @@ namespace Zw.MqttMadeBetter.ControlPackets
         FAILURE = 0x80
     }
     
-    public sealed class MqttSubackControlPacket : MqttControlPacket
+    public sealed class MqttSubackControlPacket : MqttControlPacketWithId
     {
-        public ushort PacketIdentifier { get; }
+        public override ushort PacketIdentifier { get; }
         public IReadOnlyList<SubackResultCode> Results { get; }
 
         public MqttSubackControlPacket(ushort packetIdentifier, IReadOnlyList<SubackResultCode> results)

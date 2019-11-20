@@ -1,8 +1,8 @@
 namespace Zw.MqttMadeBetter.ControlPackets
 {
-    public class MqttPubrelControlPacket : MqttControlPacket<MqttPubrelControlPacketFactory>, IPacketWithOnlyId
+    public class MqttPubrelControlPacket : MqttControlPacketWithId, IPacketWithOnlyId
     {
-        public ushort PacketIdentifier { get; }
+        public override ushort PacketIdentifier { get; }
 
         public MqttPubrelControlPacket(ushort packetIdentifier)
         {

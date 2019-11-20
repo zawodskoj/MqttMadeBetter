@@ -2,7 +2,7 @@ using System.Collections.Generic;
 
 namespace Zw.MqttMadeBetter.ControlPackets
 {
-    public class MqttUnsubscribeControlPacket : MqttControlPacket<MqttUnsubackControlPacketFactory>, IPacketWithOnlyId
+    public class MqttUnsubscribeControlPacket : MqttControlPacketWithId
     {
         public MqttUnsubscribeControlPacket(ushort packetIdentifier, IReadOnlyList<string> topics)
         {
@@ -10,7 +10,7 @@ namespace Zw.MqttMadeBetter.ControlPackets
             Topics = topics;
         }
 
-        public ushort PacketIdentifier { get; }
+        public override ushort PacketIdentifier { get; }
         public IReadOnlyList<string> Topics { get; }
         
         internal override MqttControlPacketType Type => MqttControlPacketType.UNSUBSCRIBE;

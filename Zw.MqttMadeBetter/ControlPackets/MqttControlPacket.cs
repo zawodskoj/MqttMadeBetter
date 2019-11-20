@@ -7,14 +7,17 @@ namespace Zw.MqttMadeBetter.ControlPackets
 
         public override string ToString() => $"{Type}: Flags: {TypeFlags}";
     }
-    
-    public abstract class MqttControlPacket<TFactory> : MqttControlPacket where TFactory : struct { }
+
+    public abstract class MqttControlPacketWithId : MqttControlPacket
+    {
+        public abstract ushort PacketIdentifier { get; }
+    }
 
     internal interface IEmptyPacket 
     {
     
     }
-    
+
     internal interface IPacketWithOnlyId
     {
         ushort PacketIdentifier { get; }

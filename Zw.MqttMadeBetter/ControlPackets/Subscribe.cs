@@ -14,7 +14,7 @@ namespace Zw.MqttMadeBetter.ControlPackets
         public MqttMessageQos Qos { get; }
     }
     
-    public class MqttSubscribeControlPacket : MqttControlPacket
+    public class MqttSubscribeControlPacket : MqttControlPacketWithId
     {
         public MqttSubscribeControlPacket(ushort packetIdentifier, IReadOnlyList<TopicFilter> topicFilters)
         {
@@ -22,7 +22,7 @@ namespace Zw.MqttMadeBetter.ControlPackets
             TopicFilters = topicFilters;
         }
 
-        public ushort PacketIdentifier { get; }
+        public override ushort PacketIdentifier { get; }
         public IReadOnlyList<TopicFilter> TopicFilters { get; }
         
         internal override MqttControlPacketType Type => MqttControlPacketType.SUBSCRIBE;

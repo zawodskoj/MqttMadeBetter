@@ -1,8 +1,8 @@
 namespace Zw.MqttMadeBetter.ControlPackets
 {
-    public class MqttUnsubackControlPacket : MqttControlPacket<MqttUnsubackControlPacketFactory>
+    public class MqttUnsubackControlPacket : MqttControlPacketWithId, IPacketWithOnlyId
     {
-        public ushort PacketIdentifier { get; }
+        public override ushort PacketIdentifier { get; }
 
         public MqttUnsubackControlPacket(ushort packetIdentifier)
         {
