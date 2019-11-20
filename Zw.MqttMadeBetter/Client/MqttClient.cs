@@ -73,6 +73,7 @@ namespace Zw.MqttMadeBetter.Client
 
         private volatile int _packetIdCounter;
         private volatile int _disposedFlag;
+        private volatile bool _disconnecting;
 
         private MqttClient(MqttChannel channel, MqttReadOnlyClientOptions options)
         {
@@ -196,7 +197,7 @@ namespace Zw.MqttMadeBetter.Client
         }
         
         public IObservable<MqttMessage> Messages { get; }
-        public event EventHandler<Exception> ConnectionClosed;
+        public event EventHandler<MqttClientException> ConnectionClosed;
 
         private MqttClientException Error(string s, Exception e = null)
         {
@@ -288,6 +289,26 @@ namespace Zw.MqttMadeBetter.Client
                 throw Violation("Failed to subscribe to topic " + topic);
         }
         
+        public async Task Unsubscribe(string topic, CancellationToken cancellationToken)
+        {
+            var subscribe = new MqttUnsubscribeControlPacket(AllocatePacketId(), new[] { topic });
+            await SendAndReceive<MqttUnsubackControlPacket>(subscribe, cancellationToken);
+        }
+        
+        public async Task Disconnect(CancellationToken cancellationToken)
+        {
+            _disconnecting = true;
+            
+            try
+            {
+                await Send(new MqttDisconnectControlPacket(), cancellationToken);
+            }
+            finally
+            {
+                Dispose();
+            }
+        }
+        
         private MqttMessage HandleMessage(MqttPublishControlPacket packet)
         {
             var message = new MqttMessage(packet);
@@ -298,7 +319,7 @@ namespace Zw.MqttMadeBetter.Client
             return message;
         }
 
-        private void Dispose(Exception e)
+        private void Dispose(MqttClientException e)
         {
             if (Interlocked.CompareExchange(ref _disposedFlag, 1, 0) != 0)
                 return;
@@ -307,7 +328,7 @@ namespace Zw.MqttMadeBetter.Client
             _globalCts.Dispose();
             _channel.Dispose();
 
-            ConnectionClosed?.Invoke(this, e);
+            ConnectionClosed?.Invoke(this, _disconnecting ? null : e);
         }
 
         public void Dispose()
