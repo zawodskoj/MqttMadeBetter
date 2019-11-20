@@ -1,7 +1,7 @@
 using System;
 using System.Diagnostics;
+using System.Reactive.Concurrency;
 using System.Reactive.Linq;
-using System.Reactive.Threading.Tasks;
 using System.Threading;
 using System.Threading.Tasks;
 using Zw.MqttMadeBetter.ControlPackets;
@@ -51,6 +51,34 @@ namespace Zw.MqttMadeBetter
         public MqttClientException(string message) : base(message) {}
         public MqttClientException(string message, Exception innerException) : base(message, innerException) {}
     }
+
+    public static class ObservableExtensions
+    {
+        public static async Task<T> ToAsyncTask<T>(this IObservable<T> observable, CancellationToken cancellationToken)
+        {
+            var tcs = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var sub = observable.Subscribe(x => tcs.TrySetResult(x), x => tcs.TrySetException(x));
+
+            void Cancel()
+            {
+                // ReSharper disable once AccessToDisposedClosure
+                sub.Dispose();
+                tcs.TrySetCanceled();
+            }
+            
+            await using (cancellationToken.Register(Cancel))
+            {
+                try
+                {
+                    return await tcs.Task;
+                }
+                finally
+                {
+                    sub.Dispose();
+                }
+            }
+        }
+    }
     
     public class MqttClient : IDisposable
     {
@@ -71,7 +99,8 @@ namespace Zw.MqttMadeBetter
             _autoAck = autoAck;
             _discardTimeoutMs = keepAliveSeconds == 0 ? 500 : keepAliveSeconds * 500;
             
-            _packets = Observable.FromEvent<MqttControlPacket>(x => _packetsEv += x, x => _packetsEv -= x);
+            _packets = Observable.FromEvent<MqttControlPacket>(x => _packetsEv += x, x => _packetsEv -= x,
+                Scheduler.Immediate);
             Messages = _packets.OfType<MqttPublishControlPacket>().Select(HandleMessage);
         }
 
@@ -155,7 +184,7 @@ namespace Zw.MqttMadeBetter
             
             while (!_globalCts.IsCancellationRequested)
             {
-                var pingWaiter = _packets.OfType<MqttPingrespControlPacket>().FirstAsync().ToTask(_globalCts.Token);
+                var pingWaiter = _packets.OfType<MqttPingrespControlPacket>().FirstAsync().ToAsyncTask(_globalCts.Token);
                 await _channel.Send(new MqttPingreqControlPacket(), _globalCts.Token);
 
                 stopwatch.Restart();
@@ -183,11 +212,11 @@ namespace Zw.MqttMadeBetter
                 ? _packets
                     .OfType<T>()
                     .FirstAsync(filter)
-                    .ToTask(cancellationToken)
+                    .ToAsyncTask(cancellationToken)
                 : _packets
                     .OfType<T>()
                     .FirstAsync()
-                    .ToTask(cancellationToken);
+                    .ToAsyncTask(cancellationToken);
 
         private async Task<T> WaitSpecificMessage<T>(Func<T, bool> filter, int timeoutMs, CancellationToken cancellationToken)
             where T : MqttControlPacket

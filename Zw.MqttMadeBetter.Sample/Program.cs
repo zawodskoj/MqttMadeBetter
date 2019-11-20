@@ -36,7 +36,8 @@ namespace Zw.MqttMadeBetter.Sample
             await client.Subscribe("mqtt/test/qos2", MqttMessageQos.QOS_2, CancellationToken.None);
 
             Console.WriteLine("Running");
-            await Task.Run(() => Console.ReadLine());
+            // await Task.Run(() => Console.ReadLine());
+            Console.ReadLine();
         }
 
         // hello antipatterns
