@@ -116,11 +116,13 @@ namespace Zw.MqttMadeBetter
         private readonly MqttChannel _channel;
         private readonly ushort _keepAliveSeconds;
         private readonly bool _autoAck;
-        private volatile int _packetIdCntr;
         private readonly CancellationTokenSource _globalCts = new CancellationTokenSource();
 
         private readonly IObservable<MqttControlPacket> _packets;
         private event Action<MqttControlPacket> PacketsEv;
+
+        private volatile int _packetIdCounter;
+        private volatile int _disposedFlag;
 
         private MqttClient(MqttChannel channel, ushort keepAliveSeconds, bool autoAck)
         {
@@ -161,7 +163,8 @@ namespace Zw.MqttMadeBetter
             MqttConnackReturnCode.BAD_CREDENTIALS => "Bad username or password",
             MqttConnackReturnCode.SERVER_UNAVAILABLE => "Server is unavailable",
             MqttConnackReturnCode.IDENTIFIER_REJECTED => "Client identifier is not allowed",
-            MqttConnackReturnCode.UNACCEPTABLE_PROTOCOL => "Protocol is not supported"
+            MqttConnackReturnCode.UNACCEPTABLE_PROTOCOL => "Protocol is not supported",
+            _ => "Invalid return code: " + returnCode
         };
         
         private async Task Init(MqttConnectControlPacket packet, CancellationToken cancellationToken)
@@ -173,11 +176,10 @@ namespace Zw.MqttMadeBetter
                 if (!(connack is MqttConnackControlPacket realConnack))
                     throw Error("Unexpected packet received, expected CONNACK, got " + connack.Type);
 
-                _ = StartReceiving();
-
                 if (realConnack.ReturnCode != MqttConnackReturnCode.ACCEPTED)
                     throw Error(TranslateConnackReturnCode(realConnack.ReturnCode));
 
+                _ = StartReceiving();
                 _ = StartPing();
             }
             catch (MqttClientException)
@@ -213,43 +215,46 @@ namespace Zw.MqttMadeBetter
             const int defaultPingInterval = 5000;
             
             var pingInterval = _keepAliveSeconds == 0 ? defaultPingInterval : _keepAliveSeconds * 500;
-
             var stopwatch = new Stopwatch();
-
             var token = _globalCts.Token;
-            while (!_globalCts.IsCancellationRequested)
+            
+            while (!token.IsCancellationRequested)
             {
                 var waiter = _packets.WaitSpecificMessage<MqttPingrespControlPacket>(_ => true, pingInterval, token);
                 await Send(new MqttPingreqControlPacket(), token);
 
                 stopwatch.Restart();
                 
-                if (await Task.WhenAny(waiter, Task.Delay(pingInterval, _globalCts.Token)) != waiter)
-                {
-                    // No ping received
-                    // TODO: notify about error
-
-                    Dispose();
-                    return;
-                }
+                if (await Task.WhenAny(waiter, Task.Delay(pingInterval, token)) != waiter)
+                    throw Violation("No ping response received");
 
                 var elapsed = stopwatch.ElapsedMilliseconds;
-                await Task.Delay((int) Math.Max(0, pingInterval - elapsed), _globalCts.Token);
+                await Task.Delay((int) Math.Max(0, pingInterval - elapsed), token);
             }
         }
         
         public IObservable<MqttMessage> Messages { get; }
+        public event EventHandler<Exception> ConnectionClosed;
 
         private MqttClientException Error(string s, Exception e = null)
         {
-            Dispose();
-            return e != null ? new MqttClientException(s, e) : new MqttClientException(s);
+            var exception = e != null ? new MqttClientException(s, e) : new MqttClientException(s);
+            Dispose(exception);
+            
+            return exception;
         }
         
         private MqttProtocolViolationException Violation(string s, Exception e = null)
         {
-            Dispose();
-            return e != null ? new MqttProtocolViolationException(s, e) : new MqttProtocolViolationException(s);
+            var exception = e != null ? new MqttProtocolViolationException(s, e) : new MqttProtocolViolationException(s);
+            Dispose(exception);
+            
+            return exception;
+        }
+
+        private ushort AllocatePacketId()
+        {
+            return (ushort) (1 + Interlocked.Increment(ref _packetIdCounter) % 0xffff);
         }
 
         private async Task Send(MqttControlPacket packet, CancellationToken token)
@@ -272,11 +277,6 @@ namespace Zw.MqttMadeBetter
             return await waiter ?? throw Violation($"Expected {typeof(T).Name}, did not receive in {receiveTimeoutMs} ms, closing connection");
         }
 
-        private ushort AllocatePacketId()
-        {
-            return (ushort) (1 + Interlocked.Increment(ref _packetIdCntr) % 0xffff);
-        }
-
         public async Task Send(string topic, MqttMessageQos qos, ReadOnlyMemory<byte> payload, CancellationToken cancellationToken)
         {
             var packetId = AllocatePacketId();
@@ -296,8 +296,6 @@ namespace Zw.MqttMadeBetter
                     await SendAndReceive<MqttPubcompControlPacket>(pubrel, 500, cancellationToken);
                     break;
             }
-            
-            Console.WriteLine("Message sent");
         }
 
         public async Task Acknowledge(MqttMessage message, CancellationToken cancellationToken)
@@ -322,31 +320,37 @@ namespace Zw.MqttMadeBetter
 
         public async Task Subscribe(string topic, MqttMessageQos qos, CancellationToken cancellationToken)
         {
-            await Send(new MqttSubscribeControlPacket(AllocatePacketId(),
-                new[] {new TopicFilter(topic, qos)}), cancellationToken);
+            var subscribe = new MqttSubscribeControlPacket(AllocatePacketId(), new[] {new TopicFilter(topic, qos)});
+            var suback = await SendAndReceive<MqttSubackControlPacket>(subscribe, 500, cancellationToken);
+            if (suback.Results[0] == SubackResultCode.FAILURE)
+                throw Violation("Failed to subscribe to topic " + topic);
         }
         
         private MqttMessage HandleMessage(MqttPublishControlPacket packet)
         {
             var message = new MqttMessage(packet);
             
-            switch (packet.Qos)
-            {
-                case MqttMessageQos.QOS_1:
-                case MqttMessageQos.QOS_2:
-                    if (_autoAck)
-                        _ = Acknowledge(message, _globalCts.Token);
-                    return message;
-                default:
-                    return message;
-            }
+            if (_autoAck)
+                _ = Acknowledge(message, _globalCts.Token);
+
+            return message;
+        }
+
+        private void Dispose(Exception e)
+        {
+            if (Interlocked.CompareExchange(ref _disposedFlag, 1, 0) != 0)
+                return;
+            
+            _globalCts.Cancel();
+            _globalCts.Dispose();
+            _channel.Dispose();
+
+            ConnectionClosed?.Invoke(this, e);
         }
 
         public void Dispose()
         {
-            _globalCts.Cancel();
-            _globalCts.Dispose();
-            _channel.Dispose();
+            Dispose(null);
         }
     }
 }
