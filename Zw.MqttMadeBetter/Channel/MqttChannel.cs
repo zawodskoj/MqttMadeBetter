@@ -63,9 +63,8 @@ namespace Zw.MqttMadeBetter.Channel
             cancellationToken.ThrowIfCancellationRequested();
             
             await using (cancellationToken.Register(Dispose))
+            using (await _wrLock.Enter(cancellationToken))
             {
-                await _wrLock.WaitAsync(cancellationToken);
-
                 try
                 {
                     await MqttControlPacketEncoder.Encode(_stream, packet, _sendBuffer, cancellationToken);
@@ -76,10 +75,6 @@ namespace Zw.MqttMadeBetter.Channel
                     Dispose();
                     throw new MqttChannelException("Failed to send a packet", e);
                 }
-                finally
-                {
-                    _wrLock.Release();
-                }
             }
         }
 
@@ -88,9 +83,8 @@ namespace Zw.MqttMadeBetter.Channel
             cancellationToken.ThrowIfCancellationRequested();
             
             await using (cancellationToken.Register(Dispose))
+            using (await _rdLock.Enter(cancellationToken))
             {
-                await _rdLock.WaitAsync(cancellationToken);
-
                 try
                 {
                     return await MqttControlPacketDecoder.Decode(_stream, _recvBuffer, cancellationToken);
@@ -99,10 +93,6 @@ namespace Zw.MqttMadeBetter.Channel
                 {
                     Dispose();
                     throw new MqttChannelException("Failed to receive a packet", e);
-                }
-                finally
-                {
-                    _rdLock.Release();
                 }
             }
         }

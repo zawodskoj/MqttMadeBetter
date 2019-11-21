@@ -28,9 +28,7 @@ namespace Zw.MqttMadeBetter.Client.Auto
 
         public async Task WaitAndProcess(Func<T, Task> process, CancellationToken cancellationToken)
         {
-            await _semaphore.WaitAsync(cancellationToken);
-
-            try
+            using (await _semaphore.Enter(cancellationToken)) 
             {
                 TaskCompletionSource<T> tcs = null;
 
@@ -55,10 +53,6 @@ namespace Zw.MqttMadeBetter.Client.Auto
                 {
                     _queue.Dequeue();
                 }
-            }
-            finally
-            {
-                _semaphore.Release();
             }
         }
 

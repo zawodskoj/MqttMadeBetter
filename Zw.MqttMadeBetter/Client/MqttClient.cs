@@ -295,13 +295,18 @@ namespace Zw.MqttMadeBetter.Client
             await SendAndReceive<MqttUnsubackControlPacket>(subscribe, cancellationToken);
         }
         
-        public async Task Disconnect(CancellationToken cancellationToken)
+        public async Task Disconnect(bool throwOnUngracefulDisconnection, CancellationToken cancellationToken)
         {
             _disconnecting = true;
-            
+
             try
             {
                 await Send(new MqttDisconnectControlPacket(), cancellationToken);
+            }
+            catch
+            {
+                if (throwOnUngracefulDisconnection)
+                    throw;
             }
             finally
             {

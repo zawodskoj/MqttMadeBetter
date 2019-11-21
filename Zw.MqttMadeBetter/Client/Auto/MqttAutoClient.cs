@@ -1,8 +1,5 @@
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Diagnostics;
-using System.Linq;
 using System.Reactive.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -10,6 +7,7 @@ using Zw.MqttMadeBetter.Channel.ControlPackets;
 
 namespace Zw.MqttMadeBetter.Client.Auto
 {
+    // ReSharper disable once EnumUnderlyingTypeIsInt
     public enum MqttConnectionState : int
     {
         STOPPED,
@@ -43,9 +41,11 @@ namespace Zw.MqttMadeBetter.Client.Auto
             public string Topic { get; }
             public MqttMessageQos Qos { get; }
 
-            public bool Equals(TopicSubscription other) => Topic == other.Topic && Qos == other.Qos;
+            public bool Equals(TopicSubscription other) =>
+                other != null && Topic == other.Topic && Qos == other.Qos;
 
-            public override bool Equals(object obj) => obj is TopicSubscription other && Equals(other);
+            public override bool Equals(object obj) => 
+                obj is TopicSubscription other && Equals(other);
 
             public override int GetHashCode()
             {
@@ -88,15 +88,16 @@ namespace Zw.MqttMadeBetter.Client.Auto
 
         private readonly AsyncQueue<MessageToSend> _publishPackets = new AsyncQueue<MessageToSend>();
 
-        private event Action<MqttMessage> _messagesEv;
-        private event Action<MqttConnectionStateChange> _stateChangesEv;
+        private event Action<MqttMessage> MessagesEv;
+        private event Action<MqttConnectionStateChange> StateChangesEv;
 
         private readonly object _lock = new object();
         private volatile MqttConnectionState _state;
         private volatile CancellationTokenSource _curCts;
         private bool _disposed;
 
-        private HashSet<TopicSubscription> _subscriptions =
+        private readonly SemaphoreSlim _subscriptionsSemaphore = new SemaphoreSlim(1);
+        private readonly HashSet<TopicSubscription> _subscriptions =
             new HashSet<TopicSubscription>();
         
         private readonly AsyncQueue<TopicAction> _topicActions = new AsyncQueue<TopicAction>();
@@ -105,13 +106,14 @@ namespace Zw.MqttMadeBetter.Client.Auto
         {
             _options = options;
             
-            Messages = Observable.FromEvent<MqttMessage>(x => _messagesEv += x, x => _messagesEv -= x);
-            StateChanges = Observable.FromEvent<MqttConnectionStateChange>(x => _stateChangesEv += x, x => _stateChangesEv -= x);
+            Messages = Observable.FromEvent<MqttMessage>(x => MessagesEv += x, x => MessagesEv -= x);
+            StateChanges = Observable.FromEvent<MqttConnectionStateChange>(x => StateChangesEv += x, x => StateChangesEv -= x);
         }
 
         private async Task Run(CancellationToken cancellationToken)
         {
-            var i = 0;
+            var numOfFailedRetries = 0;
+            
             while (!cancellationToken.IsCancellationRequested)
             {
                 try
@@ -124,83 +126,36 @@ namespace Zw.MqttMadeBetter.Client.Auto
                         {
                             case MqttConnectionState.STARTING:
                             case MqttConnectionState.RESTARTING:
-                                _state = MqttConnectionState.STARTED;
-                                _stateChangesEv?.Invoke(
-                                    new MqttConnectionStateChange(MqttConnectionState.STARTED, null));
+                                SetState(MqttConnectionState.STARTED);
                                 break;
                             case MqttConnectionState.STARTED:
                                 // wtf?
                                 break;
                             case MqttConnectionState.STOPPED:
-                                _ = client.Disconnect(CancellationToken.None);
+                                _ = client.Disconnect(false, CancellationToken.None);
                                 return;
                         }
                     }
                     
-                    var messageSubscription = client.Messages.Subscribe(x => _messagesEv?.Invoke(x));
+                    using var __ = client.Messages.Subscribe(x => MessagesEv?.Invoke(x));
                     var retryTcs = new TaskCompletionSource<(bool Canceled, MqttClientException Exception)>(
                         TaskCreationOptions.RunContinuationsAsynchronously);
 
-                    client.ConnectionClosed += (o, e) => { retryTcs.TrySetResult((false, e)); };
-
-                    async Task SendLoop()
-                    {
-                        while (!cancellationToken.IsCancellationRequested)
-                        {
-                            await _publishPackets.WaitAndProcess(
-                                m => client.Send(m.Topic, m.Qos, m.Payload, cancellationToken), cancellationToken);
-                        }
-                    }
+                    client.ConnectionClosed += (o, e) => retryTcs.TrySetResult((false, e));
                     
-                    // dont need to lock _subscriptions (i hope so)
-                    // todo: bulk sub
-                    foreach (var sub in _subscriptions)
-                    {
-                        await client.Subscribe(sub.Topic, sub.Qos, cancellationToken);
-                    }
-                    
-                    async Task SubLoop()
-                    {
-                        while (!cancellationToken.IsCancellationRequested)
-                        {
-                            await _topicActions.WaitAndProcess(
-                                async m =>
-                                {
-                                    cancellationToken.ThrowIfCancellationRequested();
-                                    
-                                    if (m.Subscribe)
-                                    {
-                                        await client.Subscribe(m.Topic, m.Qos, cancellationToken);
-                                        _subscriptions.Add(new TopicSubscription(m.Topic, m.Qos));
-                                    }
-                                    else
-                                    {
-                                        await client.Unsubscribe(m.Topic, cancellationToken);
-                                        _subscriptions.Remove(new TopicSubscription(m.Topic, m.Qos));
-                                    }
-                                }, cancellationToken);
-                        }
-                    }
-
-                    _ = SendLoop();
-                    _ = SubLoop();
+                    await Resubscribe(client);
+                    _ = SendLoop(client);
+                    _ = SubLoop(client);
 
                     await using (cancellationToken.Register(() => retryTcs.TrySetResult((true, null))))
                     {
+                        numOfFailedRetries = 0;
+                        
                         var (canceled, exception) = await retryTcs.Task;
                         if (canceled)
                         {
-                            try
-                            {
-                                await client.Disconnect(CancellationToken.None);
-                            }
-                            catch
-                            {
-                                // ignore
-                            }
+                            await client.Disconnect(false, CancellationToken.None);
                         }
-
-                        messageSubscription.Dispose();
                         
                         lock (_lock)
                         {
@@ -209,17 +164,13 @@ namespace Zw.MqttMadeBetter.Client.Auto
                                 case MqttConnectionState.STOPPED:
                                     return;
                                 default:
-                                    _state = MqttConnectionState.RESTARTING;
-                                    _stateChangesEv?.Invoke(
-                                        new MqttConnectionStateChange(MqttConnectionState.RESTARTING, exception));
+                                    SetState(MqttConnectionState.RESTARTING, exception);
                                     break;
                             }
                         }
 
                         if (cancellationToken.IsCancellationRequested)
                             return;
-                        
-                        await Task.Delay(_options.Backoff(i++), cancellationToken);
                     }
                 }
                 catch (Exception e)
@@ -232,13 +183,66 @@ namespace Zw.MqttMadeBetter.Client.Auto
                             case var _ when cancellationToken.IsCancellationRequested:
                                 return;
                             default:
-                                _state = MqttConnectionState.RESTARTING;
-                                _stateChangesEv?.Invoke(new MqttConnectionStateChange(MqttConnectionState.RESTARTING, new MqttClientException("Connection failed with unknown exception", e)));
+                                SetState(MqttConnectionState.RESTARTING, Error("Connection failed", e));
                                 break;
                         }
                     }
+                        
+                    await Task.Delay(_options.Backoff(numOfFailedRetries++), cancellationToken);
+                }
+            }
+            
+            MqttClientException Error(string text, Exception inner = null) => new MqttClientException(text, inner);
+
+            void SetState(MqttConnectionState state, MqttClientException e = null)
+            {
+                _state = state;
+                StateChangesEv?.Invoke(new MqttConnectionStateChange(state, e));
+            }
+
+            async Task Resubscribe(MqttClient client)
+            {
+                // todo: bulk sub
+                using (await _subscriptionsSemaphore.Enter(cancellationToken))
+                {
+                    foreach (var sub in _subscriptions)
+                    {
+                        await client.Subscribe(sub.Topic, sub.Qos, cancellationToken);
+                    }
+                }
+            }
+            
+            async Task SendLoop(MqttClient client)
+            {
+                while (!cancellationToken.IsCancellationRequested)
+                {
+                    await _publishPackets.WaitAndProcess(
+                        m => client.Send(m.Topic, m.Qos, m.Payload, cancellationToken), cancellationToken);
+                }
+            }
                     
-                    return;
+            async Task SubLoop(MqttClient client)
+            {
+                while (!cancellationToken.IsCancellationRequested)
+                {
+                    await _topicActions.WaitAndProcess(async m =>
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+
+                        using (await _subscriptionsSemaphore.Enter(cancellationToken))
+                        {
+                            if (m.Subscribe)
+                            {
+                                await client.Subscribe(m.Topic, m.Qos, cancellationToken);
+                                _subscriptions.Add(new TopicSubscription(m.Topic, m.Qos));
+                            }
+                            else
+                            {
+                                await client.Unsubscribe(m.Topic, cancellationToken);
+                                _subscriptions.Remove(new TopicSubscription(m.Topic, m.Qos));
+                            }
+                        }
+                    }, cancellationToken);
                 }
             }
         }
@@ -255,7 +259,7 @@ namespace Zw.MqttMadeBetter.Client.Auto
                     case MqttConnectionState.STOPPED:
                         _curCts = new CancellationTokenSource();
                         _state = MqttConnectionState.STARTING;
-                        _stateChangesEv?.Invoke(new MqttConnectionStateChange(MqttConnectionState.STARTING, null));
+                        StateChangesEv?.Invoke(new MqttConnectionStateChange(MqttConnectionState.STARTING, null));
                         _ = Run(_curCts.Token);
                         return;
                     default:
@@ -281,7 +285,7 @@ namespace Zw.MqttMadeBetter.Client.Auto
                         _state = MqttConnectionState.STOPPED;
                         _curCts.Cancel();
                         _curCts = null;
-                        _stateChangesEv?.Invoke(new MqttConnectionStateChange(MqttConnectionState.STOPPED, null));
+                        StateChangesEv?.Invoke(new MqttConnectionStateChange(MqttConnectionState.STOPPED, null));
                         return;
                 }
             }
