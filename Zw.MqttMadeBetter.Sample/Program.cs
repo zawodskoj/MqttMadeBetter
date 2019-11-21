@@ -49,19 +49,7 @@ namespace Zw.MqttMadeBetter.Sample
 //            Console.ReadLine();
 //            await client.Disconnect(CancellationToken.None);
 
-            var options = new MqttAutoClientOptions
-            {
-                ClientOptions = 
-                { 
-                    Endpoint = new MqttEndpoint(host, port),
-                    ConnectionOptions =
-                    {
-                        ClientId = Guid.NewGuid().ToString("N"),
-                        Credentials = new MqttCredentials(user, pass)
-                    },
-                    AutoAcknowledge = true
-                }
-            }.Freeze();
+            var options = new MqttAutoClientOptions().Freeze();
 
             var client = new MqttAutoClient(options);
             client.StateChanges.Subscribe(x => Console.WriteLine("State changed to {0}. Excep {1}: {2}", x.State,
@@ -81,7 +69,16 @@ namespace Zw.MqttMadeBetter.Sample
                 if (string.IsNullOrWhiteSpace(x))
                 {
                     if (!toggle)
-                        client.Start();
+                        client.Start(new MqttClientOptions()
+                        {
+                            Endpoint = new MqttEndpoint(host, port),
+                            ConnectionOptions =
+                            {
+                                ClientId = Guid.NewGuid().ToString("N"),
+                                Credentials = new MqttCredentials(user, pass)
+                            },
+                            AutoAcknowledge = true
+                        }.Freeze());
                     else
                         client.Stop();
 

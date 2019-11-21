@@ -111,7 +111,7 @@ namespace Zw.MqttMadeBetter.Client.Auto
             StateChanges = Observable.FromEvent<MqttConnectionStateChange>(x => StateChangesEv += x, x => StateChangesEv -= x);
         }
 
-        private async Task Run(CancellationToken cancellationToken)
+        private async Task Run(MqttReadOnlyClientOptions clientOptions, CancellationToken cancellationToken)
         {
             var numOfFailedRetries = 0;
             
@@ -119,7 +119,7 @@ namespace Zw.MqttMadeBetter.Client.Auto
             {
                 try
                 {
-                    var client = await MqttClient.Create(_options.ClientOptions, cancellationToken);
+                    var client = await MqttClient.Create(clientOptions, cancellationToken);
                     
                     lock (_lock)
                     {
@@ -251,8 +251,11 @@ namespace Zw.MqttMadeBetter.Client.Auto
             }
         }
 
-        public void Start()
+        public void Start(MqttReadOnlyClientOptions clientOptions)
         {
+            if (!clientOptions.AutoAcknowledge)
+                throw new ArgumentException("Disabled AutoAcknowledge is not supported in auto client", nameof(clientOptions));
+
             if (_disposed) 
                 throw new ObjectDisposedException("MqttAutoClient");
             
@@ -264,7 +267,7 @@ namespace Zw.MqttMadeBetter.Client.Auto
                         _curCts = new CancellationTokenSource();
                         _state = MqttConnectionState.STARTING;
                         StateChangesEv?.Invoke(new MqttConnectionStateChange(MqttConnectionState.STARTING, null));
-                        _ = Run(_curCts.Token);
+                        _ = Run(clientOptions, _curCts.Token);
                         return;
                     default:
                         // Already started

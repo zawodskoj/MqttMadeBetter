@@ -7,7 +7,7 @@ MqttMadeBetter is another MQTT-3.1.1 client library for .NET Standard 2.1
 - At least it works
 - Completely async implementation
 - Auto-reconnection support
-- No external dependencies
+- Reactive messages and connection state events
 
 ## To do
 

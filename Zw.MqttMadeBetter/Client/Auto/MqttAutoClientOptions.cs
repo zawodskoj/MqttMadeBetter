@@ -30,28 +30,21 @@ namespace Zw.MqttMadeBetter.Client.Auto
             return n => expBackoff(n) + (rand.NextDouble() * 2 - 1) * randRange;
         }
 
-        public MqttClientOptions ClientOptions { get; } = new MqttClientOptions();
         public Backoff Backoff { get; set; } = ConstantBackoff(TimeSpan.FromSeconds(10));
 
         public MqttReadOnlyAutoClientOptions Freeze()
         {
-            return new MqttReadOnlyAutoClientOptions(ClientOptions.Freeze(), Backoff);
+            return new MqttReadOnlyAutoClientOptions(Backoff);
         }
     }
 
     public class MqttReadOnlyAutoClientOptions
     {
-        public MqttReadOnlyAutoClientOptions(MqttReadOnlyClientOptions clientOptions, Backoff backoff)
+        public MqttReadOnlyAutoClientOptions(Backoff backoff)
         {
-            ClientOptions = clientOptions;
-            
-            if (!clientOptions.AutoAcknowledge)
-                throw new ArgumentException("Disabled AutoAcknowledge is not supported in auto client", nameof(clientOptions));
-                
             Backoff = backoff ?? throw new ArgumentNullException(nameof(backoff));
         }
-
-        public MqttReadOnlyClientOptions ClientOptions { get; }
+        
         public Backoff Backoff { get; }
     }
 }
