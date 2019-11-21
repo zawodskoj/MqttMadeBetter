@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reactive.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -233,8 +234,11 @@ namespace Zw.MqttMadeBetter.Client.Auto
                         {
                             if (m.Subscribe)
                             {
-                                await client.Subscribe(m.Topic, m.Qos, cancellationToken);
-                                _subscriptions.Add(new TopicSubscription(m.Topic, m.Qos));
+                                if (_subscriptions.All(x => x.Topic != m.Topic))
+                                {
+                                    await client.Subscribe(m.Topic, m.Qos, cancellationToken);
+                                    _subscriptions.Add(new TopicSubscription(m.Topic, m.Qos));
+                                }
                             }
                             else
                             {
