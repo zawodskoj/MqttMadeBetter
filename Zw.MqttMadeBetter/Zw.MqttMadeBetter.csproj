@@ -1,8 +1,14 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFramework>netstandard2.1</TargetFramework>
-        <Nullable>disable</Nullable>
+      <TargetFramework>netstandard2.1</TargetFramework>
+      <Nullable>disable</Nullable>
+      <PackageId>Zw.MqttMadeBetter</PackageId>
+      <PackageVersion>1.0.0</PackageVersion>
+      <Authors>Dmitri Bessonov (@zawodskoj)</Authors>
+      <Description>MQTT-3.1.1 client library for .NET Standard 2.1</Description>
+      <PackageProjectUrl>https://github.com/zawodskoj/MqttMadeBetter</PackageProjectUrl>
+      <PackageLicenseUrl>https://github.com/zawodskoj/MqttMadeBetter/blob/master/LICENSE.txt</PackageLicenseUrl>
     </PropertyGroup>
 
     <ItemGroup>
