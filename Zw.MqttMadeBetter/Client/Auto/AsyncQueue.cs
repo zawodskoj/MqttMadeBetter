@@ -45,7 +45,7 @@ namespace Zw.MqttMadeBetter.Client.Auto
                 }
 
                 if (tcs != null)
-                    item = await _itemAvailable.Task;
+                    item = await _itemAvailable.Task.ConfigureAwait(false);
 
                 await process(item);
 
