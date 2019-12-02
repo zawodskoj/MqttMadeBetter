@@ -14,34 +14,34 @@ namespace Zw.MqttMadeBetter.Channel
         private readonly SemaphoreSlim _wrLock = new SemaphoreSlim(1);
         private readonly byte[] _recvBuffer, _sendBuffer;
 
-        private MqttChannel(TcpClient tcp)
+        private MqttChannel(Socket socket)
         {
-            _recvBuffer = new byte[tcp.ReceiveBufferSize];
-            _sendBuffer = new byte[tcp.SendBufferSize];
-            _stream = new DestroyableStream(tcp);
+            _recvBuffer = new byte[socket.ReceiveBufferSize];
+            _sendBuffer = new byte[socket.SendBufferSize];
+            _stream = new DestroyableStream(socket);
         }
 
-        public static async Task<MqttChannel> Open(string hostname, int port, Action<TcpClient> configureTcp, CancellationToken cancellationToken)
+        public static async Task<MqttChannel> Open(string hostname, int port, Action<Socket> configureSocket, CancellationToken cancellationToken)
         {
             if (hostname == null)
                 throw new ArgumentNullException(nameof(hostname));
 
-            var tcp = new TcpClient
+            var sock = new Socket(SocketType.Stream, ProtocolType.Tcp)
             {
                 LingerState = new LingerOption(false, 0),
-                NoDelay = true
+                NoDelay = true,
             };
-            configureTcp?.Invoke(tcp);
+            configureSocket?.Invoke(sock);
             
             cancellationToken.ThrowIfCancellationRequested();
 
-            await using (cancellationToken.Register(tcp.Dispose))
+            await using (cancellationToken.Register(sock.Dispose))
             {
                 try
                 {
-                    await tcp.ConnectAsync(hostname, port);
-                    
-                    return new MqttChannel(tcp);
+                    await sock.ConnectAsync(hostname, port).ConfigureAwait(false);
+
+                    return new MqttChannel(sock);
                 }
                 catch (ObjectDisposedException e)
                 {
@@ -52,7 +52,7 @@ namespace Zw.MqttMadeBetter.Channel
                 }
                 catch (Exception e)
                 {
-                    tcp.Dispose();
+                    sock.Dispose();
                     throw new MqttChannelException("Failed to open channel", e);
                 }
             }

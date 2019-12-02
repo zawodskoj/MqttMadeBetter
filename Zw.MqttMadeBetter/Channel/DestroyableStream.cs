@@ -8,19 +8,19 @@ namespace Zw.MqttMadeBetter.Channel
 {
     internal class DestroyableStream : Stream
     {
-        private readonly TcpClient _client;
+        private readonly Socket _socket;
         private readonly NetworkStream _stream;
 
-        public DestroyableStream(TcpClient client)
+        public DestroyableStream(Socket socket)
         {
-            _client = client;
-            _stream = client.GetStream();
+            _socket = socket;
+            _stream = new NetworkStream(socket, true);
         }
 
         public override void Close()
         {
             _stream.Close();
-            _client.Close();
+            _socket.Close();
         }
 
         public override void CopyTo(Stream destination, int bufferSize) => 
@@ -37,14 +37,14 @@ namespace Zw.MqttMadeBetter.Channel
             if (disposing)
             {
                 _stream.Dispose();
-                _client.Dispose();
+                _socket.Dispose();
             }
         }
 
         public override async ValueTask DisposeAsync()
         {
             await _stream.DisposeAsync();
-            _client.Dispose();
+            _socket.Dispose();
         }
 
         public override void Flush() => 

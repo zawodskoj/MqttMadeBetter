@@ -92,15 +92,15 @@ namespace Zw.MqttMadeBetter.Client
         public static async Task<MqttClient> Create(MqttReadOnlyClientOptions options, CancellationToken cancellationToken)
         {
             var client = new MqttClient(
-                await MqttChannel.Open(options.Endpoint.Hostname, options.Endpoint.Port, tcp =>
+                await MqttChannel.Open(options.Endpoint.Hostname, options.Endpoint.Port, socket =>
                 {
                     var keepAlive = options.ConnectionOptions.KeepAliveSeconds * 1000;
                     var chanOpts = options.ChannelOptions;
 
-                    tcp.SendTimeout = chanOpts.SendTimeout ?? keepAlive;
-                    tcp.ReceiveTimeout = chanOpts.ReceiveTimeout ?? keepAlive;
+                    socket.SendTimeout = chanOpts.SendTimeout ?? keepAlive;
+                    socket.ReceiveTimeout = chanOpts.ReceiveTimeout ?? keepAlive;
                     
-                    chanOpts.CustomTcpConfig?.Invoke(tcp);
+                    chanOpts.CustomSocketConfig?.Invoke(socket);
                 }, cancellationToken), 
                 options);
             
