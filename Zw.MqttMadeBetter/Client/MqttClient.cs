@@ -222,6 +222,9 @@ namespace Zw.MqttMadeBetter.Client
 
         private async Task Send(MqttControlPacket packet, CancellationToken token)
         {
+            if (_disposedFlag == 1) throw new ObjectDisposedException(nameof(MqttClient));
+            token.ThrowIfCancellationRequested();
+            
             try
             {
                 await _channel.Send(packet, token);
@@ -242,6 +245,9 @@ namespace Zw.MqttMadeBetter.Client
 
         public async Task Send(string topic, MqttMessageQos qos, ReadOnlyMemory<byte> payload, CancellationToken cancellationToken)
         {
+            if (_disposedFlag == 1) throw new ObjectDisposedException(nameof(MqttClient));
+            cancellationToken.ThrowIfCancellationRequested();
+            
             var packetId = AllocatePacketId();
             var packet = new MqttPublishControlPacket(false, qos, false, topic, packetId, payload);
             
@@ -263,6 +269,7 @@ namespace Zw.MqttMadeBetter.Client
 
         public async Task Acknowledge(MqttMessage message, CancellationToken cancellationToken)
         {
+            if (_disposedFlag == 1) throw new ObjectDisposedException(nameof(MqttClient));
             cancellationToken.ThrowIfCancellationRequested();
             
             switch (message.Qos)
@@ -283,6 +290,9 @@ namespace Zw.MqttMadeBetter.Client
 
         public async Task Subscribe(string topic, MqttMessageQos qos, CancellationToken cancellationToken)
         {
+            if (_disposedFlag == 1) throw new ObjectDisposedException(nameof(MqttClient));
+            cancellationToken.ThrowIfCancellationRequested();
+            
             var subscribe = new MqttSubscribeControlPacket(AllocatePacketId(), new[] {new TopicFilter(topic, qos)});
             var suback = await SendAndReceive<MqttSubackControlPacket>(subscribe, cancellationToken);
             if (suback.Results[0] == SubackResultCode.FAILURE)
@@ -291,6 +301,9 @@ namespace Zw.MqttMadeBetter.Client
         
         public async Task Unsubscribe(string topic, CancellationToken cancellationToken)
         {
+            if (_disposedFlag == 1) throw new ObjectDisposedException(nameof(MqttClient));
+            cancellationToken.ThrowIfCancellationRequested();
+            
             var subscribe = new MqttUnsubscribeControlPacket(AllocatePacketId(), new[] { topic });
             await SendAndReceive<MqttUnsubackControlPacket>(subscribe, cancellationToken);
         }

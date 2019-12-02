@@ -14,6 +14,8 @@ namespace Zw.MqttMadeBetter.Channel
         private readonly SemaphoreSlim _wrLock = new SemaphoreSlim(1);
         private readonly byte[] _recvBuffer, _sendBuffer;
 
+        private volatile bool _disposed;
+        
         private MqttChannel(Socket socket)
         {
             _recvBuffer = new byte[socket.ReceiveBufferSize];
@@ -60,6 +62,7 @@ namespace Zw.MqttMadeBetter.Channel
         
         public async Task Send(MqttControlPacket packet, CancellationToken cancellationToken)
         {
+            if (_disposed) throw new ObjectDisposedException(nameof(MqttChannel));
             cancellationToken.ThrowIfCancellationRequested();
             
             await using (cancellationToken.Register(Dispose))
@@ -80,6 +83,7 @@ namespace Zw.MqttMadeBetter.Channel
 
         public async Task<MqttControlPacket> Receive(CancellationToken cancellationToken)
         {
+            if (_disposed) throw new ObjectDisposedException(nameof(MqttChannel));
             cancellationToken.ThrowIfCancellationRequested();
             
             await using (cancellationToken.Register(Dispose))
@@ -99,6 +103,7 @@ namespace Zw.MqttMadeBetter.Channel
 
         public void Dispose()
         {
+            _disposed = true;
             _stream?.Dispose();
         }
     }
