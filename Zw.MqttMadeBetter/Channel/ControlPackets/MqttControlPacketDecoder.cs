@@ -36,18 +36,19 @@ namespace Zw.MqttMadeBetter.Channel.ControlPackets
             var typeFlags = (byte) (typeByte & 0xf);
 
             var payloadLength = 0UL;
+            var multiplier = 1UL;
             byte payloadLenByte;
 
             do
             {
                 payloadLenByte = await stream.ReadSingleByteAsync(reusableBuffer, cancellationToken);
-                payloadLength *= 128;
-                payloadLength += (ulong) (payloadLenByte & 0x7f);
+                payloadLength += multiplier * (ulong) (payloadLenByte & 0x7f);
+                multiplier *= 128;
             } while ((payloadLenByte & 0x80) > 0);
 
             var payload = new byte[payloadLength];
             await stream.ReadFullAsync(payload, cancellationToken);
-            
+
             var decoder = Decoders[type];
             return decoder(payload, typeFlags);
         }
