@@ -49,10 +49,54 @@ namespace Zw.MqttMadeBetter.Client.Auto
 
                 await process(item);
 
-                lock (_queue)
+                lock (_lock)
                 {
                     _queue.Dequeue();
                 }
+            }
+        }
+
+        public async Task<bool> TryProcess(Func<T, Task> process, CancellationToken cancellationToken)
+        {
+            using (await _semaphore.Enter(cancellationToken)) 
+            {
+                T item;
+                
+                lock (_lock)
+                {
+                    if (!_queue.TryPeek(out item)) return false;
+                }
+
+                await process(item);
+
+                lock (_lock)
+                {
+                    _queue.Dequeue();
+                }
+
+                return true;
+            }
+        }
+
+        public async Task<bool> TryProcess(Action<T> process, CancellationToken cancellationToken)
+        {
+            using (await _semaphore.Enter(cancellationToken)) 
+            {
+                T item;
+                
+                lock (_lock)
+                {
+                    if (!_queue.TryPeek(out item)) return false;
+                }
+
+                process(item);
+
+                lock (_lock)
+                {
+                    _queue.Dequeue();
+                }
+
+                return true;
             }
         }
 

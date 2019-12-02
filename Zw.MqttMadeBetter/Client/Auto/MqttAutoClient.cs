@@ -221,8 +221,28 @@ namespace Zw.MqttMadeBetter.Client.Auto
             {
                 // todo: bulk sub
                 _logger.LogDebug("Resubscribing to existing topics");
+                
                 using (await _subscriptionsSemaphore.Enter(cancellationToken))
                 {
+                    // handle all available actions before resubscription (skip unsubscriptions etc)
+                    while (await _topicActions.TryProcess(m =>
+                    {
+                        if (m.Subscribe)
+                        {
+                            if (_subscriptions.All(x => x.Topic != m.Topic))
+                            {
+                                _subscriptions.Add(new TopicSubscription(m.Topic, m.Qos));
+                            }
+                        }
+                        else
+                        {
+                            _subscriptions.Remove(new TopicSubscription(m.Topic, m.Qos));
+                        }
+                    }, default))
+                    {
+                        // do nothing
+                    }
+                    
                     foreach (var sub in _subscriptions)
                     {
                         await client.Subscribe(sub.Topic, sub.Qos, cancellationToken);
