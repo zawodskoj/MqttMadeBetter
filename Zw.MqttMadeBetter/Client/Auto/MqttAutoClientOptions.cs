@@ -14,7 +14,7 @@ namespace Zw.MqttMadeBetter.Client.Auto
             {
                 try
                 {
-                    var time = startTime + TimeSpan.FromMilliseconds(Math.Pow(baseTime.TotalSeconds, n));
+                    var time = startTime + TimeSpan.FromSeconds(Math.Pow(baseTime.TotalSeconds, n));
                     return time > maxTime ? maxTime : time;
                 }
                 catch (OverflowException)
