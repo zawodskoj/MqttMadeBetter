@@ -9,6 +9,9 @@
       <Description>MQTT-3.1.1 client library for .NET Standard 2.1</Description>
       <PackageProjectUrl>https://github.com/zawodskoj/MqttMadeBetter</PackageProjectUrl>
       <PackageLicenseUrl>https://github.com/zawodskoj/MqttMadeBetter/blob/master/LICENSE.txt</PackageLicenseUrl>
+      <IncludeSymbols>true</IncludeSymbols>
+      <IncludeSource>true</IncludeSource>
+      <SymbolPackageFormat>snupkg</SymbolPackageFormat>
     </PropertyGroup>
 
     <ItemGroup>
