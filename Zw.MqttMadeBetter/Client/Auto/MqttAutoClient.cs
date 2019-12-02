@@ -129,12 +129,13 @@ namespace Zw.MqttMadeBetter.Client.Auto
                             case MqttConnectionState.RESTARTING:
                                 SetState(MqttConnectionState.STARTED);
                                 break;
+                            case MqttConnectionState.STOPPED:
+                            case var _ when cancellationToken.IsCancellationRequested:
+                                _ = client.Disconnect(false, CancellationToken.None);
+                                return;
                             case MqttConnectionState.STARTED:
                                 // wtf?
                                 break;
-                            case MqttConnectionState.STOPPED:
-                                _ = client.Disconnect(false, CancellationToken.None);
-                                return;
                         }
                     }
                     
