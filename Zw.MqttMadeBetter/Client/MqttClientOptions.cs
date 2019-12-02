@@ -1,5 +1,7 @@
 using System;
 using System.Net.Sockets;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Zw.MqttMadeBetter.Channel;
 using Zw.MqttMadeBetter.Channel.ControlPackets;
 

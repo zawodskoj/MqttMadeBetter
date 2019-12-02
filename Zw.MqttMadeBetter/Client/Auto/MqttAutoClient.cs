@@ -4,6 +4,7 @@ using System.Linq;
 using System.Reactive.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using Zw.MqttMadeBetter.Channel.ControlPackets;
 
 namespace Zw.MqttMadeBetter.Client.Auto
@@ -86,6 +87,8 @@ namespace Zw.MqttMadeBetter.Client.Auto
         } 
         
         private readonly MqttReadOnlyAutoClientOptions _options;
+        private readonly ILoggerFactory _loggerFactory;
+        private readonly ILogger<MqttAutoClient> _logger;
 
         private readonly AsyncQueue<MessageToSend> _publishPackets = new AsyncQueue<MessageToSend>();
 
@@ -102,11 +105,13 @@ namespace Zw.MqttMadeBetter.Client.Auto
             new HashSet<TopicSubscription>();
         
         private readonly AsyncQueue<TopicAction> _topicActions = new AsyncQueue<TopicAction>();
-        
-        public MqttAutoClient(MqttReadOnlyAutoClientOptions options)
+
+        public MqttAutoClient(MqttReadOnlyAutoClientOptions options, ILoggerFactory loggerFactory)
         {
             _options = options;
-            
+            _loggerFactory = loggerFactory;
+            _logger = loggerFactory.CreateLogger<MqttAutoClient>();
+
             Messages = Observable.FromEvent<MqttMessage>(x => MessagesEv += x, x => MessagesEv -= x);
             StateChanges = Observable.FromEvent<MqttConnectionStateChange>(x => StateChangesEv += x, x => StateChangesEv -= x);
         }
@@ -119,7 +124,9 @@ namespace Zw.MqttMadeBetter.Client.Auto
             {
                 try
                 {
-                    var client = await MqttClient.Create(clientOptions, cancellationToken);
+                    _logger.LogDebug("Starting client...");
+                    var client = await MqttClient.Create(clientOptions, _loggerFactory, cancellationToken);
+                    _logger.LogInformation("Client started");
                     
                     lock (_lock)
                     {
@@ -189,15 +196,23 @@ namespace Zw.MqttMadeBetter.Client.Auto
                                 break;
                         }
                     }
-                        
-                    await Task.Delay(_options.Backoff(numOfFailedRetries++), cancellationToken);
+
+                    var delay = _options.Backoff(numOfFailedRetries++);
+                    _logger.LogInformation("Delaying reconnection for {Delay}", delay);
+                    
+                    await Task.Delay(delay, cancellationToken);
                 }
             }
             
-            MqttClientException Error(string text, Exception inner = null) => new MqttClientException(text, inner);
+            MqttClientException Error(string text, Exception inner = null)
+            {
+                _logger.LogError(inner, "Client error: {ErrorDescription}", text);
+                return new MqttClientException(text, inner);
+            }
 
             void SetState(MqttConnectionState state, MqttClientException e = null)
             {
+                _logger.LogDebug("Changing state from {OldState} to {NewState}", _state, state);
                 _state = state;
                 StateChangesEv?.Invoke(new MqttConnectionStateChange(state, e));
             }
@@ -205,6 +220,7 @@ namespace Zw.MqttMadeBetter.Client.Auto
             async Task Resubscribe(MqttClient client)
             {
                 // todo: bulk sub
+                _logger.LogDebug("Resubscribing to existing topics");
                 using (await _subscriptionsSemaphore.Enter(cancellationToken))
                 {
                     foreach (var sub in _subscriptions)
@@ -219,7 +235,13 @@ namespace Zw.MqttMadeBetter.Client.Auto
                 while (!cancellationToken.IsCancellationRequested)
                 {
                     await _publishPackets.WaitAndProcess(
-                        m => client.Send(m.Topic, m.Qos, m.Payload, cancellationToken), cancellationToken);
+                        m =>
+                        {
+                            cancellationToken.ThrowIfCancellationRequested();
+                            
+                            _logger.LogDebug("Send ({Qos}) to topic {Topic} action dequeued", m.Qos, m.Topic);
+                            return client.Send(m.Topic, m.Qos, m.Payload, cancellationToken);
+                        }, cancellationToken);
                 }
             }
                     
@@ -230,11 +252,13 @@ namespace Zw.MqttMadeBetter.Client.Auto
                     await _topicActions.WaitAndProcess(async m =>
                     {
                         cancellationToken.ThrowIfCancellationRequested();
-
+                        
                         using (await _subscriptionsSemaphore.Enter(cancellationToken))
                         {
                             if (m.Subscribe)
                             {
+                                _logger.LogDebug("Subscribe ({Qos}) to topic {Topic} action dequeued", m.Qos, m.Topic);
+                                
                                 if (_subscriptions.All(x => x.Topic != m.Topic))
                                 {
                                     await client.Subscribe(m.Topic, m.Qos, cancellationToken);
@@ -243,6 +267,8 @@ namespace Zw.MqttMadeBetter.Client.Auto
                             }
                             else
                             {
+                                _logger.LogDebug("Unsubscribe from topic {Topic} action dequeued", m.Topic);
+                                
                                 await client.Unsubscribe(m.Topic, cancellationToken);
                                 _subscriptions.Remove(new TopicSubscription(m.Topic, m.Qos));
                             }
@@ -259,6 +285,8 @@ namespace Zw.MqttMadeBetter.Client.Auto
 
             if (_disposed) 
                 throw new ObjectDisposedException("MqttAutoClient");
+            
+            _logger.LogInformation("Start requested");
             
             lock (_lock)
             {
@@ -282,6 +310,8 @@ namespace Zw.MqttMadeBetter.Client.Auto
             if (_disposed) 
                 throw new ObjectDisposedException("MqttAutoClient");
             
+            _logger.LogInformation("Stop requested");
+            
             lock (_lock)
             {
                 switch (_state)
@@ -304,6 +334,7 @@ namespace Zw.MqttMadeBetter.Client.Auto
             if (_disposed) 
                 throw new ObjectDisposedException("MqttAutoClient");
             
+            _logger.LogDebug("Subscribe ({Qos}) to topic {Topic} action enqueued", qos, topic);
             _topicActions.Enqueue(new TopicAction(topic, qos, true));
         }
 
@@ -312,6 +343,7 @@ namespace Zw.MqttMadeBetter.Client.Auto
             if (_disposed)
                 throw new ObjectDisposedException("MqttAutoClient");
             
+            _logger.LogDebug("Unsubscribe from topic {Topic} action enqueued", topic);
             _topicActions.Enqueue(new TopicAction(topic, default, false));
         }
 
@@ -320,6 +352,7 @@ namespace Zw.MqttMadeBetter.Client.Auto
             if (_disposed) 
                 throw new ObjectDisposedException("MqttAutoClient");
             
+            _logger.LogDebug("Send packet ({Qos}) to topic {Topic} action enqueued", qos, topic);
             _publishPackets.Enqueue(new MessageToSend(topic, qos, payload));
         }
         

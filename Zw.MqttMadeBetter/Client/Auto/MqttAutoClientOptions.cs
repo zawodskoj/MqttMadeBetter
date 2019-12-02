@@ -1,4 +1,5 @@
 using System;
+using Microsoft.Extensions.Logging;
 
 namespace Zw.MqttMadeBetter.Client.Auto
 {
@@ -13,7 +14,7 @@ namespace Zw.MqttMadeBetter.Client.Auto
             {
                 try
                 {
-                    var time = startTime + TimeSpan.FromMilliseconds(Math.Pow(baseTime.TotalMilliseconds, n));
+                    var time = startTime + TimeSpan.FromMilliseconds(Math.Pow(baseTime.TotalSeconds, n));
                     return time > maxTime ? maxTime : time;
                 }
                 catch (OverflowException)

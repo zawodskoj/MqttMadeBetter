@@ -3,7 +3,9 @@ using System.IO;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using Zw.MqttMadeBetter.Channel.ControlPackets;
+using Zw.MqttMadeBetter.Client;
 
 namespace Zw.MqttMadeBetter.Channel
 {
@@ -23,10 +25,10 @@ namespace Zw.MqttMadeBetter.Channel
             _stream = new DestroyableStream(socket);
         }
 
-        public static async Task<MqttChannel> Open(string hostname, int port, Action<Socket> configureSocket, CancellationToken cancellationToken)
+        public static async Task<MqttChannel> Open(MqttEndpoint endpoint, Action<Socket> configureSocket, ILogger<MqttChannel> logger, CancellationToken cancellationToken)
         {
-            if (hostname == null)
-                throw new ArgumentNullException(nameof(hostname));
+            if (endpoint == null)
+                throw new ArgumentNullException(nameof(endpoint));
 
             var sock = new Socket(SocketType.Stream, ProtocolType.Tcp)
             {
@@ -41,7 +43,7 @@ namespace Zw.MqttMadeBetter.Channel
             {
                 try
                 {
-                    await sock.ConnectAsync(hostname, port).ConfigureAwait(false);
+                    await sock.ConnectAsync(endpoint.Hostname, endpoint.Port).ConfigureAwait(false);
 
                     return new MqttChannel(sock);
                 }
@@ -71,7 +73,6 @@ namespace Zw.MqttMadeBetter.Channel
                 try
                 {
                     await MqttControlPacketEncoder.Encode(_stream, packet, _sendBuffer, cancellationToken);
-                    Console.WriteLine("Encoded message: " + packet);
                 }
                 catch (Exception e)
                 {

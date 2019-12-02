@@ -2,6 +2,7 @@
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Zw.MqttMadeBetter.Channel.ControlPackets;
 using Zw.MqttMadeBetter.Client;
 using Zw.MqttMadeBetter.Client.Auto;
@@ -51,7 +52,7 @@ namespace Zw.MqttMadeBetter.Sample
 
             var options = new MqttAutoClientOptions().Freeze();
 
-            var client = new MqttAutoClient(options);
+            var client = new MqttAutoClient(options, NullLoggerFactory.Instance);
             client.StateChanges.Subscribe(x => Console.WriteLine("State changed to {0}. Excep {1}: {2}", x.State,
                 x.Exception?.GetType().Name, x.Exception?.Message));
             client.Messages.Subscribe(x => Console.WriteLine("Received: " + Encoding.UTF8.GetString(x.Payload.Span)));

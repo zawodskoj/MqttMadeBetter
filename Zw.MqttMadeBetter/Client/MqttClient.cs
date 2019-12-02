@@ -1,9 +1,11 @@
 using System;
 using System.Diagnostics;
+using System.Net.Sockets;
 using System.Reactive.Concurrency;
 using System.Reactive.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using Zw.MqttMadeBetter.Channel;
 using Zw.MqttMadeBetter.Channel.ControlPackets;
 
@@ -63,6 +65,8 @@ namespace Zw.MqttMadeBetter.Client
     
     public class MqttClient : IDisposable
     {
+        private readonly ILogger<MqttClient> _logger;
+
         private readonly MqttChannel _channel;
         private readonly MqttReadOnlyClientOptions _options;
         private readonly int _ackTimeoutMs;
@@ -75,8 +79,10 @@ namespace Zw.MqttMadeBetter.Client
         private volatile int _disposedFlag;
         private volatile bool _disconnecting;
 
-        private MqttClient(MqttChannel channel, MqttReadOnlyClientOptions options)
+        private MqttClient(MqttChannel channel, MqttReadOnlyClientOptions options, ILogger<MqttClient> logger)
         {
+            _logger = logger;
+            
             const int defaultAckTimeoutToKeepAliveRatio = 3;
             
             _channel = channel;
@@ -89,20 +95,23 @@ namespace Zw.MqttMadeBetter.Client
             Messages = _packets.OfType<MqttPublishControlPacket>().Select(HandleMessage);
         }
 
-        public static async Task<MqttClient> Create(MqttReadOnlyClientOptions options, CancellationToken cancellationToken)
+        public static async Task<MqttClient> Create(MqttReadOnlyClientOptions options, ILoggerFactory loggerFactory, CancellationToken cancellationToken)
         {
-            var client = new MqttClient(
-                await MqttChannel.Open(options.Endpoint.Hostname, options.Endpoint.Port, socket =>
-                {
-                    var keepAlive = options.ConnectionOptions.KeepAliveSeconds * 1000;
-                    var chanOpts = options.ChannelOptions;
+            void ConfigureSocket(Socket socket)
+            {
+                var keepAlive = options.ConnectionOptions.KeepAliveSeconds * 1000;
+                var chanOpts = options.ChannelOptions;
 
-                    socket.SendTimeout = chanOpts.SendTimeout ?? keepAlive;
-                    socket.ReceiveTimeout = chanOpts.ReceiveTimeout ?? keepAlive;
-                    
-                    chanOpts.CustomSocketConfig?.Invoke(socket);
-                }, cancellationToken), 
-                options);
+                socket.SendTimeout = chanOpts.SendTimeout ?? keepAlive;
+                socket.ReceiveTimeout = chanOpts.ReceiveTimeout ?? keepAlive;
+
+                chanOpts.CustomSocketConfig?.Invoke(socket);
+            }
+
+            var client = new MqttClient(
+                await MqttChannel.Open(options.Endpoint, ConfigureSocket, loggerFactory.CreateLogger<MqttChannel>(), cancellationToken), 
+                options,
+                loggerFactory.CreateLogger<MqttClient>());
             
             await client.Init(options.ConnectionOptions, cancellationToken);
             
@@ -132,8 +141,12 @@ namespace Zw.MqttMadeBetter.Client
                     options.CleanSession,
                     options.KeepAliveSeconds);
                 
+                _logger.LogTrace("Sending CONNECT packet");
                 await _channel.Send(packet, cancellationToken);
+                
+                _logger.LogTrace("Waiting for CONNACK packet");
                 var connack = await _channel.Receive(cancellationToken);
+                
                 if (!(connack is MqttConnackControlPacket realConnack))
                     throw Error("Unexpected packet received, expected CONNACK, got " + connack.Type);
 
@@ -160,9 +173,9 @@ namespace Zw.MqttMadeBetter.Client
                 try
                 {
                     var received = await _channel.Receive(_globalCts.Token);
-                    Console.WriteLine("Received control packet " + received);
+                    _logger.LogDebug("Packet received: {Packet}", received);
+                    
                     PacketsEv?.Invoke(received);
-                    Console.WriteLine("Processed control packet " + received);
                 }
                 catch (Exception e)
                 {
@@ -184,10 +197,13 @@ namespace Zw.MqttMadeBetter.Client
             while (!token.IsCancellationRequested)
             {
                 var waiter = _packets.WaitSpecificMessage<MqttPingrespControlPacket>(_ => true, pingInterval, token);
+                
+                _logger.LogTrace("Sending PING request");
                 await Send(new MqttPingreqControlPacket(), token);
 
                 stopwatch.Restart();
                 
+                _logger.LogTrace("Waiting for PING response");
                 if (await Task.WhenAny(waiter, Task.Delay(pingInterval, token)) != waiter)
                     throw Violation("No ping response received");
 
@@ -204,6 +220,8 @@ namespace Zw.MqttMadeBetter.Client
             var exception = e != null ? new MqttClientException(s, e) : new MqttClientException(s);
             Dispose(exception);
             
+            _logger.LogError(e, "Client error: {ErrorMessage}", s);
+            
             return exception;
         }
         
@@ -211,6 +229,8 @@ namespace Zw.MqttMadeBetter.Client
         {
             var exception = e != null ? new MqttProtocolViolationException(s, e) : new MqttProtocolViolationException(s);
             Dispose(exception);
+            
+            _logger.LogError(e, "MQTT protocol violation: {ErrorMessage}", s);
             
             return exception;
         }
@@ -227,6 +247,7 @@ namespace Zw.MqttMadeBetter.Client
             
             try
             {
+                _logger.LogTrace("Sending packet: {Packet}", packet);
                 await _channel.Send(packet, token);
             }
             catch (Exception e)
@@ -240,6 +261,8 @@ namespace Zw.MqttMadeBetter.Client
             var waiter = _packets.WaitSpecificMessage<T>(x => x.PacketIdentifier == packet.PacketIdentifier, _ackTimeoutMs, token);
 
             await Send(packet, token);
+            
+            _logger.LogTrace("Waiting for packet with id {Id}", packet.PacketIdentifier);
             return await waiter ?? throw Violation($"Expected {typeof(T).Name}, did not receive in {_ackTimeoutMs} ms, closing connection");
         }
 
@@ -250,6 +273,8 @@ namespace Zw.MqttMadeBetter.Client
             
             var packetId = AllocatePacketId();
             var packet = new MqttPublishControlPacket(false, qos, false, topic, packetId, payload);
+            
+            _logger.LogDebug("Sending message ({Qos}) to topic {Topic}", qos, topic);
             
             switch (qos)
             {
@@ -272,6 +297,8 @@ namespace Zw.MqttMadeBetter.Client
             if (_disposedFlag == 1) throw new ObjectDisposedException(nameof(MqttClient));
             cancellationToken.ThrowIfCancellationRequested();
             
+            _logger.LogDebug("Acknowledging message ({Qos}) from topic {Topic}", message.Qos, message.TopicName);
+            
             switch (message.Qos)
             {
                 case MqttMessageQos.QOS_0:
@@ -293,6 +320,8 @@ namespace Zw.MqttMadeBetter.Client
             if (_disposedFlag == 1) throw new ObjectDisposedException(nameof(MqttClient));
             cancellationToken.ThrowIfCancellationRequested();
             
+            _logger.LogDebug("Subscribing ({Qos}) to topic {Topic}", qos, topic);
+            
             var subscribe = new MqttSubscribeControlPacket(AllocatePacketId(), new[] {new TopicFilter(topic, qos)});
             var suback = await SendAndReceive<MqttSubackControlPacket>(subscribe, cancellationToken);
             if (suback.Results[0] == SubackResultCode.FAILURE)
@@ -304,25 +333,46 @@ namespace Zw.MqttMadeBetter.Client
             if (_disposedFlag == 1) throw new ObjectDisposedException(nameof(MqttClient));
             cancellationToken.ThrowIfCancellationRequested();
             
-            var subscribe = new MqttUnsubscribeControlPacket(AllocatePacketId(), new[] { topic });
-            await SendAndReceive<MqttUnsubackControlPacket>(subscribe, cancellationToken);
+            _logger.LogDebug("Unsubscribing from topic {Topic}", topic);
+            
+            var unsubscribe = new MqttUnsubscribeControlPacket(AllocatePacketId(), new[] { topic });
+            await SendAndReceive<MqttUnsubackControlPacket>(unsubscribe, cancellationToken);
         }
         
         public async Task Disconnect(bool throwOnUngracefulDisconnection, CancellationToken cancellationToken)
         {
+            if (_disposedFlag == 1) return;
+            
+            if (cancellationToken.IsCancellationRequested)
+            {
+                if (throwOnUngracefulDisconnection)
+                    cancellationToken.ThrowIfCancellationRequested();
+                
+                return;
+            }
+            
+            _logger.LogDebug("Disconnecting from broker");
             _disconnecting = true;
+
+            Exception exception = null;
 
             try
             {
                 await Send(new MqttDisconnectControlPacket(), cancellationToken);
             }
-            catch
+            catch (Exception e)
             {
+                exception = e;
+                
                 if (throwOnUngracefulDisconnection)
                     throw;
             }
             finally
             {
+                _logger.LogDebug(exception, exception == null
+                    ? "Successfully disconnected"
+                    : "Failed to disconnect gracefully");
+                
                 Dispose();
             }
         }
