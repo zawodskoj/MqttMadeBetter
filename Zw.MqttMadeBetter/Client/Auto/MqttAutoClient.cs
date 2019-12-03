@@ -272,44 +272,33 @@ namespace Zw.MqttMadeBetter.Client.Auto
                     
             async Task SubLoop(MqttClient client, CancellationToken cancellationToken)
             {
-                try
+                while (!cancellationToken.IsCancellationRequested)
                 {
-                    while (!cancellationToken.IsCancellationRequested)
+                    await _topicActions.WaitAndProcess(async m =>
                     {
-                        _logger.LogDebug("SubLoop SW");
+                        cancellationToken.ThrowIfCancellationRequested();
 
-                        await _topicActions.WaitAndProcess(async m =>
+                        using (await _subscriptionsSemaphore.Enter(cancellationToken))
                         {
-                            cancellationToken.ThrowIfCancellationRequested();
-
-                            using (await _subscriptionsSemaphore.Enter(cancellationToken))
+                            if (m.Subscribe)
                             {
-                                if (m.Subscribe)
-                                {
-                                    _logger.LogDebug("Subscribe ({Qos}) to topic {Topic} action dequeued", m.Qos, m.Topic);
+                                _logger.LogDebug("Subscribe ({Qos}) to topic {Topic} action dequeued", m.Qos, m.Topic);
 
-                                    if (_subscriptions.All(x => x.Topic != m.Topic))
-                                    {
-                                        await client.Subscribe(m.Topic, m.Qos, cancellationToken);
-                                        _subscriptions.Add(new TopicSubscription(m.Topic, m.Qos));
-                                    }
-                                }
-                                else
+                                if (_subscriptions.All(x => x.Topic != m.Topic))
                                 {
-                                    _logger.LogDebug("Unsubscribe from topic {Topic} action dequeued", m.Topic);
-
-                                    await client.Unsubscribe(m.Topic, cancellationToken);
-                                    _subscriptions.Remove(new TopicSubscription(m.Topic, m.Qos));
+                                    await client.Subscribe(m.Topic, m.Qos, cancellationToken);
+                                    _subscriptions.Add(new TopicSubscription(m.Topic, m.Qos));
                                 }
                             }
-                        }, cancellationToken);
+                            else
+                            {
+                                _logger.LogDebug("Unsubscribe from topic {Topic} action dequeued", m.Topic);
 
-                        _logger.LogDebug("SubLoop EW");
-                    }
-                }
-                finally
-                {
-                    _logger.LogDebug("SubLoop E_METH");
+                                await client.Unsubscribe(m.Topic, cancellationToken);
+                                _subscriptions.Remove(new TopicSubscription(m.Topic, m.Qos));
+                            }
+                        }
+                    }, cancellationToken);
                 }
             }
         }
