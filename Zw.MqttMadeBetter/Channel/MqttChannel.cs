@@ -11,6 +11,7 @@ namespace Zw.MqttMadeBetter.Channel
 {
     public class MqttChannel : IDisposable
     {
+        private readonly ILogger<MqttChannel> _logger;
         private readonly Stream _stream;
         private readonly SemaphoreSlim _rdLock = new SemaphoreSlim(1);
         private readonly SemaphoreSlim _wrLock = new SemaphoreSlim(1);
@@ -18,8 +19,9 @@ namespace Zw.MqttMadeBetter.Channel
 
         private volatile bool _disposed;
         
-        private MqttChannel(Socket socket)
+        private MqttChannel(Socket socket, ILogger<MqttChannel> logger)
         {
+            _logger = logger;
             _recvBuffer = new byte[socket.ReceiveBufferSize];
             _sendBuffer = new byte[socket.SendBufferSize];
             _stream = new DestroyableStream(socket);
@@ -45,7 +47,7 @@ namespace Zw.MqttMadeBetter.Channel
                 {
                     await sock.ConnectAsync(endpoint.Hostname, endpoint.Port).ConfigureAwait(false);
 
-                    return new MqttChannel(sock);
+                    return new MqttChannel(sock, logger);
                 }
                 catch (ObjectDisposedException e)
                 {
@@ -72,6 +74,7 @@ namespace Zw.MqttMadeBetter.Channel
             {
                 try
                 {
+                    _logger.LogDebug("Sending packet: {Packet}", packet);
                     await MqttControlPacketEncoder.Encode(_stream, packet, _sendBuffer, cancellationToken);
                 }
                 catch (Exception e)
@@ -92,7 +95,9 @@ namespace Zw.MqttMadeBetter.Channel
             {
                 try
                 {
-                    return await MqttControlPacketDecoder.Decode(_stream, _recvBuffer, cancellationToken);
+                    var packet = await MqttControlPacketDecoder.Decode(_stream, _recvBuffer, cancellationToken);
+                    _logger.LogDebug("Packet received: {Packet}", packet);
+                    return packet;
                 }
                 catch (Exception e)
                 {

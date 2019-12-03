@@ -173,8 +173,6 @@ namespace Zw.MqttMadeBetter.Client
                 try
                 {
                     var received = await _channel.Receive(_globalCts.Token);
-                    _logger.LogDebug("Packet received: {Packet}", received);
-                    
                     PacketsEv?.Invoke(received);
                 }
                 catch (Exception e)
