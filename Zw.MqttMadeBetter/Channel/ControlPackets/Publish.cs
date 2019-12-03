@@ -47,9 +47,7 @@ namespace Zw.MqttMadeBetter.Channel.ControlPackets
 
         public override string ToString()
         {
-            var payload = Encoding.UTF8.GetString(Payload.Span);
-            return
-                $"PUBLISH({PacketIdentifier}): From: {TopicName}/{Qos}, Duplicate: {IsDuplicate}, Payload: {payload};";
+            return $"PUBLISH({PacketIdentifier}): From: {TopicName}/{Qos}, Duplicate: {IsDuplicate}";
         }
     }
 }
