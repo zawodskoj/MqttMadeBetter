@@ -1,13 +1,13 @@
 using System;
 using System.IO;
+using System.IO.Pipelines;
 using System.Threading;
-using System.Threading.Tasks;
 
 namespace Zw.MqttMadeBetter.Channel.ControlPackets
 {
     public class MqttControlPacketDecoder
     {
-        private delegate MqttControlPacket Decoder(byte[] payload, byte typeFlags);
+        private delegate MqttControlPacket Decoder(ReadOnlySpan<byte> payload, byte typeFlags);
 
         private static readonly Decoder[] Decoders =
         {
@@ -29,38 +29,80 @@ namespace Zw.MqttMadeBetter.Channel.ControlPackets
             Reserved // Reserved type
         };
         
-        public static async Task<MqttControlPacket> Decode(Stream stream, byte[] reusableBuffer, CancellationToken cancellationToken)
+        public static bool TryDecode(PipeReader reader, CancellationToken cancellationToken, out MqttControlPacket packet)
         {
-            var typeByte = await stream.ReadSingleByteAsync(reusableBuffer, cancellationToken);
+            packet = null;
+            
+            if (!reader.TryRead(out var result) || result.Buffer.Length < 2)
+                return false;
+
+            var buffer = result.Buffer;
+           
+            var typeByte = buffer.FirstSpan[0];
             var type = typeByte >> 4;
             var typeFlags = (byte) (typeByte & 0xf);
 
-            var payloadLength = 0UL;
-            var multiplier = 1UL;
-            byte payloadLenByte;
+            var payloadLength = 0L;
+            var multiplier = 1L;
 
-            do
+            var readCompletely = false;
+
+            var bufferWithoutTypeByte = buffer.Slice(1);
+            var offset = 0;
+
+            foreach (var piece in bufferWithoutTypeByte)
             {
-                payloadLenByte = await stream.ReadSingleByteAsync(reusableBuffer, cancellationToken);
-                payloadLength += multiplier * (ulong) (payloadLenByte & 0x7f);
-                multiplier *= 128;
-            } while ((payloadLenByte & 0x80) > 0);
+                foreach (var payloadLenByte in piece.Span)
+                {
+                    payloadLength += multiplier * (payloadLenByte & 0x7f);
+                    multiplier *= 128;
 
-            var payload = new byte[payloadLength];
-            await stream.ReadFullAsync(payload, cancellationToken);
+                    offset++;
 
+                    if ((payloadLenByte & 0x80) == 0)
+                    {
+                        readCompletely = true;
+                        goto lenRead;
+                    }
+                }
+            }
+
+            lenRead: 
+            
+            if (!readCompletely)
+                return false;
+
+            var payloadPart = bufferWithoutTypeByte.Slice(offset);
+            if (payloadPart.Length < payloadLength)
+                return false;
+            
+            // todo: do not allocate
+            var memory = new Memory<byte>(new byte[payloadLength]);
+            var curSlice = memory;
+            
+            foreach (var piece in payloadPart)
+            {
+                piece.CopyTo(curSlice);
+                curSlice = memory.Slice(piece.Length);
+                
+                if (curSlice.Length == 0) break;
+            }
+            
             var decoder = Decoders[type];
-            return decoder(payload, typeFlags);
+            
+            packet = decoder(memory.Span, typeFlags);
+            reader.AdvanceTo(buffer.GetPosition(1 + offset + payloadLength));
+            return true;
         }
 
-        private static MqttControlPacket Unsupported(byte[] payload, byte typeFlags) 
+        private static MqttControlPacket Unsupported(ReadOnlySpan<byte> payload, byte typeFlags) 
             => throw new NotSupportedException("Not implemented yet");
         
-        private static MqttControlPacket Reserved(byte[] payload, byte typeFlags) 
+        private static MqttControlPacket Reserved(ReadOnlySpan<byte> payload, byte typeFlags) 
             => throw new NotSupportedException("Reserved control packet type - can't decode");
         
         
-        private static MqttControlPacket DecodeConnack(byte[] payload, byte typeFlags)
+        private static MqttControlPacket DecodeConnack(ReadOnlySpan<byte> payload, byte typeFlags)
         {
             if (payload.Length != 2) 
                 throw new Exception("Invalid payload (should be 2 bytes long)");
@@ -68,7 +110,7 @@ namespace Zw.MqttMadeBetter.Channel.ControlPackets
             return new MqttConnackControlPacket((payload[0] & 1) == 1, (MqttConnackReturnCode) payload[1]);
         }
         
-        private static MqttControlPacket DecodePublish(byte[] payload, byte typeFlags)
+        private static MqttControlPacket DecodePublish(ReadOnlySpan<byte> payload, byte typeFlags)
         {
             var qos = (MqttMessageQos) ((typeFlags >> 1) & 0x3);
             
@@ -87,10 +129,10 @@ namespace Zw.MqttMadeBetter.Channel.ControlPackets
                 (typeFlags & 0x1) == 0x1,
                 topicName,
                 packetIdentifier,
-                payload.AsMemory(nextOffset));
+                payload.Slice(nextOffset).ToArray());
         }
 
-        private static MqttControlPacket DecodeSuback(byte[] payload, byte typeFlags)
+        private static MqttControlPacket DecodeSuback(ReadOnlySpan<byte> payload, byte typeFlags)
         {
             var packetIdentifier = (ushort) (payload[0] * 256 + payload[1]);
 
@@ -101,7 +143,7 @@ namespace Zw.MqttMadeBetter.Channel.ControlPackets
             return new MqttSubackControlPacket(packetIdentifier, results);
         }
 
-        private static MqttControlPacket DecodeOnlyId<TFac>(byte[] payload, byte typeFlags) where TFac : struct, IPacketWithOnlyIdFactory
+        private static MqttControlPacket DecodeOnlyId<TFac>(ReadOnlySpan<byte> payload, byte typeFlags) where TFac : struct, IPacketWithOnlyIdFactory
         {
             if (payload.Length != 2)
                 throw new InvalidDataException("Expected two bytes payload, got payload with length " + payload.Length);
@@ -111,7 +153,7 @@ namespace Zw.MqttMadeBetter.Channel.ControlPackets
             return default(TFac).Create(packetIdentifier);
         }
         
-        private static MqttControlPacket DecodeEmpty<T>(byte[] payload, byte typeFlags) where T : MqttControlPacket, new()
+        private static MqttControlPacket DecodeEmpty<T>(ReadOnlySpan<byte> payload, byte typeFlags) where T : MqttControlPacket, new()
         {
             if (payload.Length != 0)
                 throw new InvalidDataException("Expected no payload, got payload with length " + payload.Length);

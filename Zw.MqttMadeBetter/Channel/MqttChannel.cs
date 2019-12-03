@@ -1,5 +1,6 @@
 ﻿using System;
 using System.IO;
+using System.IO.Pipelines;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,17 +13,19 @@ namespace Zw.MqttMadeBetter.Channel
     public class MqttChannel : IDisposable
     {
         private readonly Stream _stream;
+        private readonly Pipe _pipe;
         private readonly SemaphoreSlim _rdLock = new SemaphoreSlim(1);
         private readonly SemaphoreSlim _wrLock = new SemaphoreSlim(1);
         private readonly byte[] _recvBuffer, _sendBuffer;
 
         private volatile bool _disposed;
-        
+
         private MqttChannel(Socket socket)
         {
             _recvBuffer = new byte[socket.ReceiveBufferSize];
             _sendBuffer = new byte[socket.SendBufferSize];
             _stream = new DestroyableStream(socket);
+            _pipe = new Pipe();
         }
 
         public static async Task<MqttChannel> Open(MqttEndpoint endpoint, Action<Socket> configureSocket, ILogger<MqttChannel> logger, CancellationToken cancellationToken)
@@ -92,7 +95,24 @@ namespace Zw.MqttMadeBetter.Channel
             {
                 try
                 {
-                    return await MqttControlPacketDecoder.Decode(_stream, _recvBuffer, cancellationToken);
+                    var writer = _pipe.Writer;
+                    MqttControlPacket packet;
+                    
+                    do
+                    {
+                        var memory = writer.GetMemory();
+                        var read = await _stream.ReadAsync(memory, cancellationToken);
+                        if (read == 0)
+                        {
+                            Dispose();
+                            throw new MqttChannelException("Reached stream end", null);
+                        }
+
+                        writer.Advance(read);
+                        await writer.FlushAsync();
+                    } while (!MqttControlPacketDecoder.TryDecode(_pipe.Reader, cancellationToken, out packet));
+
+                    return packet;
                 }
                 catch (Exception e)
                 {

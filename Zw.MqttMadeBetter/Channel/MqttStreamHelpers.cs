@@ -58,7 +58,26 @@ namespace Zw.MqttMadeBetter.Channel
 
             return (str, nextOffset);
         }
-        
+
+
+        public static (string String, int NextOffset) ReadUtf8StringAtOffset(this ReadOnlySpan<byte> array, int offset)
+        {
+            if (array.Length - 1 < offset || offset < 0)
+                throw new ArgumentOutOfRangeException(nameof(offset));
+            
+            if (array.Length - 2 < offset)
+                throw new ArgumentException("Not enough space for string length", nameof(array));
+
+            var length = array[offset] * 256 + array[offset + 1];
+            if (array.Length - length - 2 < offset)
+                throw new ArgumentException($"Not enough space for string with length {length} - only {array.Length - offset - 2} bytes available", nameof(array));
+
+            var nextOffset = offset + 2 + length;
+            var str = Encoding.UTF8.GetString(array.Slice(offset + 2, length));
+
+            return (str, nextOffset);
+        }
+
         public static int WriteUtf8StringAtOffset(this byte[] array, string s, int offset)
         {
             if (array.Length - 1 < offset || offset < 0)
