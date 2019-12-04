@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Net.Sockets;
 using System.Reactive.Concurrency;
@@ -324,6 +325,27 @@ namespace Zw.MqttMadeBetter.Client
             var suback = await SendAndReceive<MqttSubackControlPacket>(subscribe, cancellationToken);
             if (suback.Results[0] == SubackResultCode.FAILURE)
                 throw Violation("Failed to subscribe to topic " + topic);
+        }
+        
+        public async Task Subscribe(IReadOnlyList<TopicFilter> topicFilters, CancellationToken cancellationToken)
+        {
+            if (_disposedFlag == 1) throw new ObjectDisposedException(nameof(MqttClient));
+            cancellationToken.ThrowIfCancellationRequested();
+            
+            if (topicFilters.Count == 0) return;
+            
+            _logger.LogDebug("Subscribing to topics:\n\t{Topics}",
+                string.Join<TopicFilter>("\n\t", topicFilters));
+            
+            var subscribe = new MqttSubscribeControlPacket(AllocatePacketId(), topicFilters);
+            var suback = await SendAndReceive<MqttSubackControlPacket>(subscribe, cancellationToken);
+
+            for (var index = 0; index < suback.Results.Count; index++)
+            {
+                var result = suback.Results[index];
+                if (result == SubackResultCode.FAILURE)
+                    throw Violation("Failed to subscribe to topic " + topicFilters[index]);
+            }
         }
         
         public async Task Unsubscribe(string topic, CancellationToken cancellationToken)

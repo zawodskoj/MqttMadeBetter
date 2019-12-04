@@ -126,6 +126,10 @@ namespace Zw.MqttMadeBetter.Client.Auto
                 {
                     _logger.LogDebug("Starting client...");
                     var client = await MqttClient.Create(clientOptions, _loggerFactory, cancellationToken);
+                    
+                    using var __ = client.Messages.Subscribe(x => MessagesEv?.Invoke(x));
+                    await Resubscribe(client);
+                    
                     _logger.LogInformation("Client started");
                     
                     lock (_lock)
@@ -145,16 +149,12 @@ namespace Zw.MqttMadeBetter.Client.Auto
                                 break;
                         }
                     }
-                    
-                    using var __ = client.Messages.Subscribe(x => MessagesEv?.Invoke(x));
 
                     using var failureTokenSource = new CancellationTokenSource();
                     var retryTcs = new TaskCompletionSource<(bool Canceled, MqttClientException Exception)>(
                         TaskCreationOptions.RunContinuationsAsynchronously);
 
                     client.ConnectionClosed += (o, e) => retryTcs.TrySetResult((false, e));
-                    
-                    await Resubscribe(client);
 
                     _ = SendLoop(client, failureTokenSource.Token);
                     _ = SubLoop(client, failureTokenSource.Token);
@@ -177,14 +177,14 @@ namespace Zw.MqttMadeBetter.Client.Auto
                             {
                                 case MqttConnectionState.STOPPED:
                                     return;
+                                case var _ when canceled || cancellationToken.IsCancellationRequested:
+                                    _logger.LogInformation("MQTT runner canceled");
+                                    return;
                                 default:
                                     SetState(MqttConnectionState.RESTARTING, exception);
                                     break;
                             }
                         }
-
-                        if (cancellationToken.IsCancellationRequested)
-                            return;
                     }
                 }
                 catch (Exception e)
@@ -194,20 +194,24 @@ namespace Zw.MqttMadeBetter.Client.Auto
                         switch (_state)
                         {
                             case MqttConnectionState.STOPPED:
+                                return;
                             case var _ when cancellationToken.IsCancellationRequested:
+                                _logger.LogInformation("MQTT runner canceled");
                                 return;
                             default:
                                 SetState(MqttConnectionState.RESTARTING, Error("Connection failed", e));
                                 break;
                         }
                     }
-
-                    var delay = _options.Backoff(numOfFailedRetries++);
-                    _logger.LogInformation("Delaying reconnection for {Delay}", delay);
-                    
-                    await Task.Delay(delay, cancellationToken);
                 }
+
+                var delay = _options.Backoff(numOfFailedRetries++);
+                _logger.LogInformation("Delaying reconnection for {Delay}", delay);
+                    
+                await Task.Delay(delay, cancellationToken);
             }
+            
+            _logger.LogInformation("MQTT runner canceled");
             
             MqttClientException Error(string text, Exception inner = null)
             {
@@ -224,7 +228,6 @@ namespace Zw.MqttMadeBetter.Client.Auto
 
             async Task Resubscribe(MqttClient client)
             {
-                // todo: bulk sub
                 _logger.LogDebug("Resubscribing to existing topics");
                 
                 using (await _subscriptionsSemaphore.Enter(cancellationToken))
@@ -247,11 +250,8 @@ namespace Zw.MqttMadeBetter.Client.Auto
                     {
                         // do nothing
                     }
-                    
-                    foreach (var sub in _subscriptions)
-                    {
-                        await client.Subscribe(sub.Topic, sub.Qos, cancellationToken);
-                    }
+
+                    await client.Subscribe(_subscriptions.Select(x => new TopicFilter(x.Topic, x.Qos)).ToArray(), cancellationToken);
                 }
             }
             
@@ -330,11 +330,8 @@ namespace Zw.MqttMadeBetter.Client.Auto
             }
         }
 
-        public void Stop()
-        {
-            if (_disposed) 
-                throw new ObjectDisposedException("MqttAutoClient");
-            
+        private void StopInternal()
+        {    
             _logger.LogInformation("Stop requested");
             
             lock (_lock)
@@ -352,6 +349,14 @@ namespace Zw.MqttMadeBetter.Client.Auto
                         return;
                 }
             }
+        }
+        
+        public void Stop()
+        {
+            if (_disposed) 
+                throw new ObjectDisposedException("MqttAutoClient");
+            
+            StopInternal();
         }
 
         public void Subscribe(string topic, MqttMessageQos qos)
@@ -387,7 +392,7 @@ namespace Zw.MqttMadeBetter.Client.Auto
         public void Dispose()
         {
             _disposed = true;
-            Stop();
+            StopInternal();
         }
     }
 }
