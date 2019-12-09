@@ -27,7 +27,7 @@ namespace Zw.MqttMadeBetter.Channel
             _stream = new DestroyableStream(socket);
         }
 
-        public static async Task<MqttChannel> Open(MqttEndpoint endpoint, Action<Socket> configureSocket, ILogger<MqttChannel> logger, CancellationToken cancellationToken)
+        public static async Task<MqttChannel> Open(MqttEndpoint endpoint, Action<Socket> configureSocket, int connectionTimeout, ILogger<MqttChannel> logger, CancellationToken cancellationToken)
         {
             if (endpoint == null)
                 throw new ArgumentNullException(nameof(endpoint));
@@ -45,7 +45,20 @@ namespace Zw.MqttMadeBetter.Channel
             {
                 try
                 {
-                    await sock.ConnectAsync(endpoint.Hostname, endpoint.Port).ConfigureAwait(false);
+                    var connT = sock.ConnectAsync(endpoint.Hostname, endpoint.Port);
+
+                    var timerT = Task.Delay(connectionTimeout, cancellationToken);
+
+                    var rT = await Task.WhenAny(connT, timerT).ConfigureAwait(false);
+                    if (rT == timerT)
+                    {
+                        sock.Dispose();
+                        throw new MqttChannelException("Failed to open channel - timed out", null);
+                    }
+                    else
+                    {
+                        await connT; // for exception
+                    }
 
                     return new MqttChannel(sock, logger);
                 }

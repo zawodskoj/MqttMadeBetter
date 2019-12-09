@@ -15,6 +15,7 @@ namespace Zw.MqttMadeBetter.Client
     {
         public int? SendTimeout { get; set; }
         public int? ReceiveTimeout { get; set; }
+        public int? ConnectionTimeout { get; set; }
         
         public int? PingInterval { get; set; }
         public int? AcknowledgeTimeout { get; set; }
@@ -24,13 +25,13 @@ namespace Zw.MqttMadeBetter.Client
         public MqttReadOnlyChannelOptions Freeze()
         {
             return new MqttReadOnlyChannelOptions(
-                SendTimeout, ReceiveTimeout, PingInterval, AcknowledgeTimeout, CustomSocketConfig);
+                SendTimeout, ReceiveTimeout, ConnectionTimeout, PingInterval, AcknowledgeTimeout, CustomSocketConfig);
         }
     }
 
     public class MqttReadOnlyChannelOptions
     {
-        public MqttReadOnlyChannelOptions(int? sendTimeout, int? receiveTimeout, int? pingInterval,
+        public MqttReadOnlyChannelOptions(int? sendTimeout, int? receiveTimeout, int? connectionTimeout, int? pingInterval,
             int? acknowledgeTimeout, Action<Socket> customSocketConfig)
         {
             SendTimeout = sendTimeout;
@@ -38,10 +39,12 @@ namespace Zw.MqttMadeBetter.Client
             PingInterval = pingInterval;
             AcknowledgeTimeout = acknowledgeTimeout;
             CustomSocketConfig = customSocketConfig;
+            ConnectionTimeout = connectionTimeout;
         }
 
         public int? SendTimeout { get; }
         public int? ReceiveTimeout { get; }
+        public int? ConnectionTimeout { get; }
         
         public int? PingInterval { get; }
         public int? AcknowledgeTimeout { get; }

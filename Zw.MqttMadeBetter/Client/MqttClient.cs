@@ -110,7 +110,12 @@ namespace Zw.MqttMadeBetter.Client
             }
 
             var client = new MqttClient(
-                await MqttChannel.Open(options.Endpoint, ConfigureSocket, loggerFactory.CreateLogger<MqttChannel>(), cancellationToken), 
+                await MqttChannel.Open(
+                    options.Endpoint, 
+                    ConfigureSocket,
+                    options.ChannelOptions.ConnectionTimeout ?? options.ConnectionOptions.KeepAliveSeconds * 1000,
+                    loggerFactory.CreateLogger<MqttChannel>(), 
+                    cancellationToken),
                 options,
                 loggerFactory.CreateLogger<MqttClient>());
             
