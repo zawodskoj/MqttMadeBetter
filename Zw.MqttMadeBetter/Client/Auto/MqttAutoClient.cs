@@ -34,14 +34,16 @@ namespace Zw.MqttMadeBetter.Client.Auto
     {
         private class TopicSubscription : IEquatable<TopicSubscription>
         {
-            public TopicSubscription(string topic, MqttMessageQos qos)
+            public TopicSubscription(string topic, MqttMessageQos qos, TaskCompletionSource<int> completionSource)
             {
                 Topic = topic;
                 Qos = qos;
+                CompletionSource = completionSource;
             }
 
             public string Topic { get; }
             public MqttMessageQos Qos { get; }
+            public TaskCompletionSource<int> CompletionSource { get; }
 
             public bool Equals(TopicSubscription other) =>
                 other != null && Topic == other.Topic && Qos == other.Qos;
@@ -60,16 +62,18 @@ namespace Zw.MqttMadeBetter.Client.Auto
 
         private readonly struct TopicAction
         {
-            public TopicAction(string topic, MqttMessageQos qos, bool subscribe)
+            public TopicAction(string topic, MqttMessageQos qos, bool subscribe, TaskCompletionSource<int> completionSource = null)
             {
                 Topic = topic;
                 Qos = qos;
                 Subscribe = subscribe;
+                CompletionSource = completionSource;
             }
 
             public string Topic { get;}
             public MqttMessageQos Qos { get; }
             public bool Subscribe { get; }
+            public TaskCompletionSource<int> CompletionSource { get; }
         }
         
         private readonly struct MessageToSend
@@ -124,13 +128,12 @@ namespace Zw.MqttMadeBetter.Client.Auto
             {
                 try
                 {
-                    _logger.LogDebug("Starting client...");
+                    _logger.LogInformation("Starting client");
                     var client = await MqttClient.Create(clientOptions, _loggerFactory, cancellationToken);
+                    _logger.LogInformation("Client started");
                     
                     using var __ = client.Messages.Subscribe(x => MessagesEv?.Invoke(x));
                     await Resubscribe(client);
-                    
-                    _logger.LogInformation("Client started");
                     
                     lock (_lock)
                     {
@@ -208,7 +211,8 @@ namespace Zw.MqttMadeBetter.Client.Auto
                 var delay = _options.Backoff(numOfFailedRetries++);
                 _logger.LogInformation("Delaying reconnection for {Delay}", delay);
                     
-                await Task.Delay(delay, cancellationToken);
+                // ReSharper disable once MethodSupportsCancellation
+                await Task.Delay(delay);
             }
             
             _logger.LogInformation("MQTT runner canceled");
@@ -226,6 +230,23 @@ namespace Zw.MqttMadeBetter.Client.Auto
                 StateChangesEv?.Invoke(new MqttConnectionStateChange(state, e));
             }
 
+            async Task ForwardCompletion(Task task, TaskCompletionSource<int> completionSource)
+            {
+                try
+                {
+                    await task;
+                    completionSource.TrySetResult(0);
+                }
+                catch (OperationCanceledException)
+                {
+                    completionSource.TrySetCanceled();
+                }
+                catch (Exception e)
+                {
+                    completionSource.TrySetException(e);
+                }
+            }
+
             async Task Resubscribe(MqttClient client)
             {
                 _logger.LogDebug("Resubscribing to existing topics");
@@ -237,14 +258,28 @@ namespace Zw.MqttMadeBetter.Client.Auto
                     {
                         if (m.Subscribe)
                         {
-                            if (_subscriptions.All(x => x.Topic != m.Topic))
+                            _logger.LogDebug("Subscribe ({Qos}) to topic {Topic} action dequeued", m.Qos, m.Topic);
+                            
+                            if (_subscriptions.FirstOrDefault(x => x.Topic == m.Topic) is {} existing)
                             {
-                                _subscriptions.Add(new TopicSubscription(m.Topic, m.Qos));
+                                if (m.CompletionSource != null)
+                                    _ = ForwardCompletion(existing.CompletionSource.Task, m.CompletionSource);
                             }
+                            else
+                            {
+                                _subscriptions.Add(new TopicSubscription(m.Topic, m.Qos, m.CompletionSource));
+                            } 
                         }
                         else
                         {
-                            _subscriptions.Remove(new TopicSubscription(m.Topic, m.Qos));
+                            _logger.LogDebug("Unsubscribe from topic {Topic} action dequeued", m.Topic);
+                            
+                            if (_subscriptions.FirstOrDefault(x => x.Topic == m.Topic) is {} existing)
+                            {
+                                _subscriptions.Remove(existing);
+                                existing.CompletionSource?.TrySetCanceled();
+                            }
+
                         }
                     }, default))
                     {
@@ -252,6 +287,11 @@ namespace Zw.MqttMadeBetter.Client.Auto
                     }
 
                     await client.Subscribe(_subscriptions.Select(x => new TopicFilter(x.Topic, x.Qos)).ToArray(), cancellationToken);
+
+                    foreach (var sub in _subscriptions)
+                    {
+                        sub.CompletionSource?.TrySetResult(0);
+                    }
                 }
             }
             
@@ -283,19 +323,30 @@ namespace Zw.MqttMadeBetter.Client.Auto
                             if (m.Subscribe)
                             {
                                 _logger.LogDebug("Subscribe ({Qos}) to topic {Topic} action dequeued", m.Qos, m.Topic);
-
-                                if (_subscriptions.All(x => x.Topic != m.Topic))
+                                
+                                if (_subscriptions.FirstOrDefault(x => x.Topic == m.Topic) is {} existing)
+                                {
+                                    if (m.CompletionSource != null)
+                                        _ = ForwardCompletion(existing.CompletionSource.Task, m.CompletionSource);
+                                }
+                                else
                                 {
                                     await client.Subscribe(m.Topic, m.Qos, cancellationToken);
-                                    _subscriptions.Add(new TopicSubscription(m.Topic, m.Qos));
-                                }
+                                    _subscriptions.Add(new TopicSubscription(m.Topic, m.Qos, m.CompletionSource));
+                                    m.CompletionSource?.TrySetResult(0);
+                                } 
                             }
                             else
                             {
                                 _logger.LogDebug("Unsubscribe from topic {Topic} action dequeued", m.Topic);
+                                
+                                if (_subscriptions.FirstOrDefault(x => x.Topic == m.Topic) is {} existing)
+                                {
+                                    await client.Unsubscribe(m.Topic, cancellationToken);
+                                    _subscriptions.Remove(existing);
+                                    existing.CompletionSource?.TrySetCanceled();
+                                }
 
-                                await client.Unsubscribe(m.Topic, cancellationToken);
-                                _subscriptions.Remove(new TopicSubscription(m.Topic, m.Qos));
                             }
                         }
                     }, cancellationToken);
@@ -366,6 +417,19 @@ namespace Zw.MqttMadeBetter.Client.Auto
             
             _logger.LogDebug("Subscribe ({Qos}) to topic {Topic} action enqueued", qos, topic);
             _topicActions.Enqueue(new TopicAction(topic, qos, true));
+        }
+
+        public Task SubscribeAndWait(string topic, MqttMessageQos qos)
+        {
+            if (_disposed) 
+                throw new ObjectDisposedException("MqttAutoClient");
+            
+            var tcs = new TaskCompletionSource<int>();
+            
+            _logger.LogDebug("Subscribe ({Qos}) to topic {Topic} action enqueued", qos, topic);
+            _topicActions.Enqueue(new TopicAction(topic, qos, true, tcs));
+
+            return tcs.Task;
         }
 
         public void Unsubscribe(string topic)
